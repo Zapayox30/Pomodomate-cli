@@ -1,0 +1,44 @@
+[package]
+name = "pomodomate-cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["Pomodomate.com"]
+description = "🍅 A beautiful Pomodoro timer for the terminal — featuring Domate, your animated tomato companion"
+license = "MIT"
+repository = "https://github.com/pomodomate/pomodomate-cli"
+homepage = "https://pomodomate.com"
+keywords = ["pomodoro", "timer", "tui", "productivity", "cli"]
+categories = ["command-line-utilities"]
+readme = "README.md"
+
+[dependencies]
+# TUI Framework
+ratatui = "0.30"
+crossterm = "0.29"
+
+# Configuration
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Time & IDs
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+
+# Notifications
+notify-rust = "4.12"
+
+# CLI Arguments
+clap = { version = "4", features = ["derive"] }
+
+# XDG Directories
+dirs = "6"
+
+# Error Handling
+anyhow = "1"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "z"
