@@ -126,7 +126,7 @@ impl Config {
     }
 
     /// Validate config values are sane.
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         anyhow::ensure!(self.work_duration > 0, "work_duration must be > 0");
         anyhow::ensure!(self.short_break > 0, "short_break must be > 0");
         anyhow::ensure!(self.long_break > 0, "long_break must be > 0");

@@ -203,6 +203,83 @@ impl Storage {
     }
 }
 
+/// Aggregated productivity stats (used by `pomodomate stats` and the TUI).
+#[derive(Debug, Serialize)]
+pub struct Stats {
+    /// Completed pomodoros today
+    pub today: u32,
+    /// Completed pomodoros in the last 7 days (including today)
+    pub week: u32,
+    /// Completed pomodoros in the last 365 days
+    pub year: u32,
+    /// Days with at least one completed pomodoro in the last 365 days
+    pub active_days: u32,
+    /// Longest run of consecutive active days
+    pub best_streak: u32,
+    /// Consecutive active days ending today (or yesterday, if today has
+    /// no pomodoros yet — the streak is still alive until the day ends)
+    pub current_streak: u32,
+}
+
+impl Storage {
+    /// Compute aggregate stats over the last 365 days.
+    pub fn stats(&self) -> Result<Stats> {
+        let daily = self.daily_counts(365)?;
+
+        let today = daily.last().map(|(_, c)| *c).unwrap_or(0);
+        let week = daily.iter().rev().take(7).map(|(_, c)| c).sum();
+        let year = daily.iter().map(|(_, c)| c).sum();
+        let active_days = daily.iter().filter(|(_, c)| *c > 0).count() as u32;
+
+        Ok(Stats {
+            today,
+            week,
+            year,
+            active_days,
+            best_streak: calculate_streak(&daily),
+            current_streak: current_streak(&daily),
+        })
+    }
+}
+
+/// Longest run of consecutive days with at least one completed pomodoro.
+pub fn calculate_streak(daily_counts: &[(chrono::NaiveDate, u32)]) -> u32 {
+    let mut max_streak = 0u32;
+    let mut current = 0u32;
+
+    for (_date, count) in daily_counts {
+        if *count > 0 {
+            current += 1;
+            max_streak = max_streak.max(current);
+        } else {
+            current = 0;
+        }
+    }
+
+    max_streak
+}
+
+/// Consecutive active days ending today; an inactive today doesn't break
+/// the streak (there's still time to keep it alive).
+fn current_streak(daily_counts: &[(chrono::NaiveDate, u32)]) -> u32 {
+    let mut iter = daily_counts.iter().rev().peekable();
+
+    // Skip today if it has no pomodoros yet
+    if let Some(&&(_, 0)) = iter.peek() {
+        iter.next();
+    }
+
+    let mut streak = 0u32;
+    for (_date, count) in iter {
+        if *count > 0 {
+            streak += 1;
+        } else {
+            break;
+        }
+    }
+    streak
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,6 +344,55 @@ mod tests {
 
         // The legacy file is no longer the source of truth
         assert!(!dir.join("sessions.json").exists());
+    }
+
+    fn work_session_days_ago(days: i64) -> Session {
+        Session::new(Utc::now() - chrono::Duration::days(days), 25, "work", true)
+    }
+
+    #[test]
+    fn stats_aggregates_today_week_and_year() {
+        let (storage, _dir) = temp_storage();
+        storage.save_session(&work_session_days_ago(0)).unwrap();
+        storage.save_session(&work_session_days_ago(0)).unwrap();
+        storage.save_session(&work_session_days_ago(3)).unwrap();
+        storage.save_session(&work_session_days_ago(10)).unwrap();
+        storage.save_session(&work_session_days_ago(400)).unwrap(); // outside the year window
+
+        let stats = storage.stats().unwrap();
+        assert_eq!(stats.today, 2);
+        assert_eq!(stats.week, 3, "last 7 days include today and 3 days ago");
+        assert_eq!(stats.year, 4);
+        assert_eq!(stats.active_days, 3);
+    }
+
+    #[test]
+    fn stats_streaks_count_consecutive_days() {
+        let (storage, _dir) = temp_storage();
+        // Active today, yesterday, and the day before: current streak of 3
+        for days in 0..3 {
+            storage.save_session(&work_session_days_ago(days)).unwrap();
+        }
+        // An older, longer streak of 4 separated by a gap
+        for days in 10..14 {
+            storage.save_session(&work_session_days_ago(days)).unwrap();
+        }
+
+        let stats = storage.stats().unwrap();
+        assert_eq!(stats.current_streak, 3);
+        assert_eq!(stats.best_streak, 4);
+    }
+
+    #[test]
+    fn current_streak_survives_a_day_without_pomodoros_yet() {
+        let (storage, _dir) = temp_storage();
+        // Nothing today, but active yesterday and the day before:
+        // the streak is still alive until today ends.
+        storage.save_session(&work_session_days_ago(1)).unwrap();
+        storage.save_session(&work_session_days_ago(2)).unwrap();
+
+        let stats = storage.stats().unwrap();
+        assert_eq!(stats.current_streak, 2);
     }
 
     #[test]

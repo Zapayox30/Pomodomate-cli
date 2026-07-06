@@ -179,6 +179,21 @@ impl Timer {
         }
     }
 
+    /// Add or subtract whole minutes from the current phase, keeping at
+    /// least one minute on the clock and progress within [0, 1].
+    pub fn adjust(&mut self, minutes: i64) {
+        let delta = Duration::from_secs(60);
+        if minutes > 0 {
+            self.remaining += delta;
+            self.total_duration += delta;
+        } else if minutes < 0 && self.remaining > delta {
+            self.remaining = (self.remaining - delta).max(delta);
+        }
+        if self.total_duration < self.remaining {
+            self.total_duration = self.remaining;
+        }
+    }
+
     /// Progress as a fraction from 0.0 (just started) to 1.0 (completed).
     pub fn progress(&self) -> f64 {
         if self.total_duration.is_zero() {
@@ -345,6 +360,42 @@ mod tests {
         assert!((t.progress() - 0.5).abs() < 1e-9);
         t.remaining = Duration::ZERO;
         assert_eq!(t.progress(), 1.0);
+    }
+
+    #[test]
+    fn adjust_adds_a_minute_to_remaining_and_total() {
+        let mut t = timer();
+        t.adjust(1);
+        assert_eq!(t.remaining, Duration::from_secs(26 * 60));
+        assert_eq!(t.total_duration, Duration::from_secs(26 * 60));
+    }
+
+    #[test]
+    fn adjust_subtracts_but_never_below_one_minute() {
+        let mut t = timer();
+        t.adjust(-1);
+        assert_eq!(t.remaining, Duration::from_secs(24 * 60));
+
+        t.remaining = Duration::from_secs(90);
+        t.adjust(-1);
+        assert_eq!(t.remaining, Duration::from_secs(60), "floor is one minute");
+
+        t.adjust(-1);
+        assert_eq!(t.remaining, Duration::from_secs(60), "already at the floor");
+    }
+
+    #[test]
+    fn adjust_keeps_progress_in_bounds() {
+        let mut t = timer();
+        // Shrink remaining well below total, then grow it past total
+        t.remaining = Duration::from_secs(120);
+        t.adjust(1);
+        t.adjust(1);
+        assert!(
+            t.total_duration >= t.remaining,
+            "total must cover remaining"
+        );
+        assert!((0.0..=1.0).contains(&t.progress()));
     }
 
     #[test]

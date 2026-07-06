@@ -38,40 +38,183 @@ fn phase_color(phase: &TimerPhase) -> Color {
     }
 }
 
+/// How much UI fits in the current terminal size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutMode {
+    /// Mascot + big digits + everything else
+    Full,
+    /// No mascot (short terminals, e.g. tmux splits)
+    Compact,
+    /// One-line timer + progress + keys (tiny terminals)
+    Mini,
+}
+
+/// Pick a layout that fits without clipping the mascot mid-body.
+fn layout_mode(_width: u16, height: u16) -> LayoutMode {
+    if height >= 38 {
+        LayoutMode::Full
+    } else if height >= 15 {
+        LayoutMode::Compact
+    } else {
+        LayoutMode::Mini
+    }
+}
+
+/// Whether the 3-row box-drawing digits fit horizontally.
+fn fits_big_digits(width: u16) -> bool {
+    width >= 34
+}
+
 /// Main draw function — renders the entire UI frame.
 pub fn draw(frame: &mut Frame, app: &App) {
     let area = frame.area();
+    let mode = layout_mode(area.width, area.height);
 
     // Background
     let bg_block = Block::default().style(Style::default().bg(DARK_BG));
     frame.render_widget(bg_block, area);
 
-    match app.current_view {
-        View::Timer => draw_timer_view(frame, app, area),
-        View::Heatmap => draw_heatmap_view(frame, app, area),
+    match (mode, app.current_view) {
+        (LayoutMode::Mini, _) => draw_mini_view(frame, app, area),
+        (_, View::Timer) => draw_timer_view(frame, app, area, mode),
+        (_, View::Heatmap) => draw_heatmap_view(frame, app, area),
+    }
+
+    if app.show_help {
+        draw_help_overlay(frame, area);
     }
 }
 
-/// Render the main timer view with Domate mascot.
-fn draw_timer_view(frame: &mut Frame, app: &App, area: Rect) {
+/// Render the main timer view, with the Domate mascot when it fits.
+fn draw_timer_view(frame: &mut Frame, app: &App, area: Rect, mode: LayoutMode) {
+    // Big digits need width and, in Compact, enough rows left over
+    let use_big = fits_big_digits(area.width) && (mode == LayoutMode::Full || area.height >= 20);
+    let timer_height = if use_big { 9 } else { 7 };
+
+    if mode == LayoutMode::Full {
+        let chunks = Layout::vertical([
+            Constraint::Length(3),            // Header
+            Constraint::Length(1),            // Spacer
+            Constraint::Min(17),              // Mascot (full sprite)
+            Constraint::Length(timer_height), // Timer
+            Constraint::Length(2),            // Pomodoro counter
+            Constraint::Length(3),            // Progress bar
+            Constraint::Length(3),            // Footer
+        ])
+        .split(area);
+
+        draw_header(frame, app, chunks[0]);
+        mascot::draw_mascot(frame, app, chunks[2]);
+        draw_timer_display(frame, app, chunks[3], use_big);
+        draw_pomodoro_counter(frame, app, chunks[4]);
+        draw_progress_bar(frame, app, chunks[5]);
+        draw_footer(frame, app, chunks[6]);
+    } else {
+        let chunks = Layout::vertical([
+            Constraint::Length(3),                // Header
+            Constraint::Min(timer_height as u16), // Timer
+            Constraint::Length(2),                // Pomodoro counter
+            Constraint::Length(3),                // Progress bar
+            Constraint::Length(3),                // Footer
+        ])
+        .split(area);
+
+        draw_header(frame, app, chunks[0]);
+        draw_timer_display(frame, app, chunks[1], use_big);
+        draw_pomodoro_counter(frame, app, chunks[2]);
+        draw_progress_bar(frame, app, chunks[3]);
+        draw_footer(frame, app, chunks[4]);
+    }
+}
+
+/// One-line layout for tiny terminals: status, gauge, and keys.
+fn draw_mini_view(frame: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::vertical([
-        Constraint::Length(3), // Header
-        Constraint::Length(1), // Spacer
-        Constraint::Min(8),    // Mascot (pixel art takes roughly 6-8 lines)
-        Constraint::Length(5), // Timer (big numbers are 5 lines)
-        Constraint::Length(1), // Spacer
-        Constraint::Length(2), // Pomodoro counter
-        Constraint::Length(3), // Progress bar
-        Constraint::Length(3), // Footer
+        Constraint::Length(1), // Status line
+        Constraint::Length(1), // Progress gauge
+        Constraint::Length(1), // Keys
     ])
     .split(area);
 
-    draw_header(frame, app, chunks[0]);
-    mascot::draw_mascot(frame, app, chunks[2]);
-    draw_timer_display(frame, app, chunks[3]);
-    draw_pomodoro_counter(frame, app, chunks[5]);
-    draw_progress_bar(frame, app, chunks[6]);
-    draw_footer(frame, app, chunks[7]);
+    let pc = phase_color(&app.timer.phase);
+    let status = Paragraph::new(Line::from(vec![
+        Span::styled(
+            format!(" {} ", app.timer.phase.label()),
+            Style::default().fg(pc).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            app.timer.remaining_display(),
+            Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("  🍅 {}", app.timer.pomodoros_completed),
+            Style::default().fg(MUTED_TEXT),
+        ),
+    ]));
+    frame.render_widget(status, chunks[0]);
+
+    let gauge = Gauge::default()
+        .gauge_style(Style::default().fg(pc).bg(PROGRESS_BG))
+        .ratio(app.timer.progress())
+        .label("");
+    frame.render_widget(gauge, chunks[1]);
+
+    let keys = Paragraph::new(Line::from(Span::styled(
+        " space pause · s skip · q quit",
+        Style::default().fg(MUTED_TEXT),
+    )));
+    frame.render_widget(keys, chunks[2]);
+}
+
+/// Centered help overlay listing every keybinding. Any key closes it.
+fn draw_help_overlay(frame: &mut Frame, area: Rect) {
+    let width = 44.min(area.width);
+    let height = 14.min(area.height);
+    let popup = Rect {
+        x: area.x + (area.width.saturating_sub(width)) / 2,
+        y: area.y + (area.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    };
+
+    frame.render_widget(ratatui::widgets::Clear, popup);
+
+    let key_style = Style::default()
+        .fg(WARM_YELLOW)
+        .add_modifier(Modifier::BOLD);
+    let text_style = Style::default().fg(SOFT_WHITE);
+    let key_line = |key: &'static str, action: &'static str| {
+        Line::from(vec![
+            Span::styled(format!("  {:>7}  ", key), key_style),
+            Span::styled(action, text_style),
+        ])
+    };
+
+    let lines = vec![
+        Line::from(""),
+        key_line("space", "start / pause / resume"),
+        key_line("r", "reset current phase"),
+        key_line("s", "skip to next phase"),
+        key_line("h", "toggle heatmap view"),
+        key_line("+ / -", "add / remove one minute"),
+        key_line("?", "toggle this help"),
+        key_line("q", "quit (asks twice while running)"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  press any key to close",
+            Style::default().fg(MUTED_TEXT).add_modifier(Modifier::DIM),
+        )),
+    ];
+
+    let help = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(BORDER_GLOW))
+            .title(" ❔ Help ")
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(DARK_BASE)),
+    );
+    frame.render_widget(help, popup);
 }
 
 /// Render the heatmap view.
@@ -131,8 +274,8 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(header, area);
 }
 
-/// Big ASCII-art timer display.
-fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect) {
+/// Timer display: box-drawing digits when there's room, plain MM:SS otherwise.
+fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect, use_big: bool) {
     let time_str = app.timer.remaining_display();
     let pc = if app.timer.is_last_minute() {
         WARM_YELLOW
@@ -140,19 +283,7 @@ fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect) {
         phase_color(&app.timer.phase)
     };
 
-    // Parse MM:SS
-    let parts: Vec<&str> = time_str.split(':').collect();
-    let (mins, secs) = if parts.len() == 2 {
-        (parts[0], parts[1])
-    } else {
-        ("00", "00")
-    };
-
-    // Build big number display (5 lines tall)
-    let big_lines = render_big_time(mins, secs, pc);
-
     let mut lines: Vec<Line<'static>> = Vec::new();
-    lines.push(Line::from(""));
 
     // Phase label above timer
     lines.push(Line::from(vec![Span::styled(
@@ -161,9 +292,22 @@ fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect) {
     )]));
     lines.push(Line::from(""));
 
-    // Big numbers
-    for big_line in big_lines {
-        lines.push(big_line);
+    if use_big {
+        // Parse MM:SS
+        let parts: Vec<&str> = time_str.split(':').collect();
+        let (mins, secs) = if parts.len() == 2 {
+            (parts[0], parts[1])
+        } else {
+            ("00", "00")
+        };
+        for big_line in render_big_time(mins, secs, pc) {
+            lines.push(big_line);
+        }
+    } else {
+        lines.push(Line::from(Span::styled(
+            time_str,
+            Style::default().fg(pc).add_modifier(Modifier::BOLD),
+        )));
     }
 
     lines.push(Line::from(""));
@@ -188,7 +332,6 @@ fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect) {
         TimerStatus::Running => "",
     };
     if !hint.is_empty() {
-        lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             hint,
             Style::default().fg(WARM_YELLOW).add_modifier(Modifier::DIM),
@@ -354,50 +497,51 @@ fn draw_progress_bar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(gauge, area);
 }
 
-/// Footer showing keybindings.
+/// Footer showing keybindings (or the quit confirmation warning).
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
-    let view_name = match app.current_view {
-        View::Timer => "Heatmap",
-        View::Heatmap => "Timer",
+    let line = if app.quit_pending {
+        Line::from(Span::styled(
+            "  ⚠ timer is running — press q again to quit, any other key to stay",
+            Style::default()
+                .fg(WARM_YELLOW)
+                .add_modifier(Modifier::BOLD),
+        ))
+    } else {
+        let view_name = match app.current_view {
+            View::Timer => "Heatmap",
+            View::Heatmap => "Timer",
+        };
+        let key = |k: &'static str| {
+            Span::styled(
+                k,
+                Style::default()
+                    .fg(BORDER_GLOW)
+                    .add_modifier(Modifier::BOLD),
+            )
+        };
+        let label = |t: String| Span::styled(t, Style::default().fg(MUTED_TEXT));
+
+        Line::from(vec![
+            Span::styled("  ", Style::default()),
+            key("space"),
+            label(" pause  ".into()),
+            key("r"),
+            label(" reset  ".into()),
+            key("s"),
+            label(" skip  ".into()),
+            key("h"),
+            label(format!(" {}  ", view_name)),
+            key("?"),
+            label(" help  ".into()),
+            Span::styled(
+                "q",
+                Style::default().fg(TOMATO_RED).add_modifier(Modifier::BOLD),
+            ),
+            label(" quit".into()),
+        ])
     };
 
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled("  ", Style::default()),
-        Span::styled(
-            "space",
-            Style::default()
-                .fg(BORDER_GLOW)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(" pause  ", Style::default().fg(MUTED_TEXT)),
-        Span::styled(
-            "r",
-            Style::default()
-                .fg(BORDER_GLOW)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(" reset  ", Style::default().fg(MUTED_TEXT)),
-        Span::styled(
-            "s",
-            Style::default()
-                .fg(BORDER_GLOW)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(" skip  ", Style::default().fg(MUTED_TEXT)),
-        Span::styled(
-            "h",
-            Style::default()
-                .fg(BORDER_GLOW)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(format!(" {}  ", view_name), Style::default().fg(MUTED_TEXT)),
-        Span::styled(
-            "q",
-            Style::default().fg(TOMATO_RED).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(" quit", Style::default().fg(MUTED_TEXT)),
-    ]))
-    .block(
+    let footer = Paragraph::new(line).block(
         Block::default()
             .borders(Borders::TOP)
             .border_style(Style::default().fg(BORDER_DIM))
@@ -405,4 +549,33 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     );
 
     frame.render_widget(footer, area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tall_terminals_get_the_full_layout_with_mascot() {
+        assert_eq!(layout_mode(80, 45), LayoutMode::Full);
+        assert_eq!(layout_mode(80, 38), LayoutMode::Full);
+    }
+
+    #[test]
+    fn short_terminals_drop_the_mascot() {
+        assert_eq!(layout_mode(80, 37), LayoutMode::Compact);
+        assert_eq!(layout_mode(80, 15), LayoutMode::Compact);
+    }
+
+    #[test]
+    fn tiny_terminals_get_the_one_line_mini_layout() {
+        assert_eq!(layout_mode(80, 14), LayoutMode::Mini);
+        assert_eq!(layout_mode(80, 5), LayoutMode::Mini);
+    }
+
+    #[test]
+    fn narrow_terminals_never_use_big_digits() {
+        assert!(fits_big_digits(34));
+        assert!(!fits_big_digits(33));
+    }
 }

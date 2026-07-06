@@ -31,6 +31,10 @@ pub struct App {
     pub should_quit: bool,
     /// True if no work session has been completed yet today (sunrise mascot)
     pub first_session_today: bool,
+    /// Whether the help overlay is visible
+    pub show_help: bool,
+    /// True after a first `q` while the timer runs (waiting for confirmation)
+    pub quit_pending: bool,
     /// Timestamp when the current phase started (for session logging)
     phase_started_at: Option<chrono::DateTime<Utc>>,
 }
@@ -53,6 +57,8 @@ impl App {
             current_view: View::Timer,
             should_quit: false,
             first_session_today,
+            show_help: false,
+            quit_pending: false,
             phase_started_at: None,
         })
     }
@@ -101,6 +107,17 @@ impl App {
 
     /// Handle a key press event.
     fn handle_key(&mut self, key: KeyCode) -> Result<()> {
+        // The help overlay swallows the next key press
+        if self.show_help {
+            self.show_help = false;
+            return Ok(());
+        }
+
+        // Any key except q/Esc cancels a pending quit confirmation
+        if !matches!(key, KeyCode::Char('q') | KeyCode::Esc) {
+            self.quit_pending = false;
+        }
+
         match key {
             KeyCode::Char(' ') => {
                 // Record phase start time when starting for the first time
@@ -130,8 +147,22 @@ impl App {
                     View::Heatmap => View::Timer,
                 };
             }
+            KeyCode::Char('?') => {
+                self.show_help = true;
+            }
+            KeyCode::Char('+') | KeyCode::Char('=') => {
+                self.timer.adjust(1);
+            }
+            KeyCode::Char('-') => {
+                self.timer.adjust(-1);
+            }
             KeyCode::Char('q') | KeyCode::Esc => {
-                self.should_quit = true;
+                // Don't lose a running session to a stray keypress
+                if self.timer.status == TimerStatus::Running && !self.quit_pending {
+                    self.quit_pending = true;
+                } else {
+                    self.should_quit = true;
+                }
             }
             _ => {}
         }

@@ -74,22 +74,35 @@ cargo build --release
 # Start a Pomodoro session
 pomodomate
 
-# Show version
-pomodomate --version
+# Custom durations for this run only (config.toml is untouched)
+pomodomate -w 50 -b 10        # 50-min focus, 10-min short breaks
+pomodomate -l 20 -i 3         # 20-min long break after 3 pomodoros
+
+# Run silently — no sound, no notifications
+pomodomate --mute
+
+# Print your stats without opening the timer (great for scripts/Waybar)
+pomodomate stats
+pomodomate stats --json
 
 # Use custom config
 pomodomate --config /path/to/config.toml
 ```
 
+The interface adapts to your terminal: full mascot view in large windows,
+a compact view in small splits, and a one-line mini mode in tiny panes.
+
 ## ⌨️ Keybindings
 
 | Key | Action |
 |-----|--------|
-| `Space` | Pause / Resume timer |
+| `Space` | Start / Pause / Resume timer |
 | `r` | Reset current timer |
 | `s` | Skip to next phase |
 | `h` | Toggle heatmap view |
-| `q` | Quit |
+| `+` / `-` | Add / remove one minute |
+| `?` | Show help overlay |
+| `q` | Quit (asks for confirmation while running) |
 
 ## ⚙️ Configuration
 

@@ -93,7 +93,7 @@ pub fn draw_heatmap(frame: &mut Frame, app: &App, area: Rect) {
     // Summary stats
     let total_pomodoros: u32 = daily_counts.iter().map(|(_, c)| c).sum();
     let active_days = daily_counts.iter().filter(|(_, c)| *c > 0).count();
-    let max_streak = calculate_streak(&daily_counts);
+    let max_streak = crate::storage::calculate_streak(&daily_counts);
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
@@ -188,23 +188,6 @@ fn month_label_row(grid: &[[Cell; 7]]) -> String {
     row.into_iter().collect()
 }
 
-/// Calculate the longest consecutive-day streak of completed pomodoros.
-fn calculate_streak(daily_counts: &[(chrono::NaiveDate, u32)]) -> u32 {
-    let mut max_streak = 0u32;
-    let mut current_streak = 0u32;
-
-    for (_date, count) in daily_counts {
-        if *count > 0 {
-            current_streak += 1;
-            max_streak = max_streak.max(current_streak);
-        } else {
-            current_streak = 0;
-        }
-    }
-
-    max_streak
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,12 +233,12 @@ mod tests {
             .enumerate()
             .map(|(i, c)| (d(2025, 1, i as u32 + 1), *c))
             .collect();
-        assert_eq!(calculate_streak(&counts), 3);
+        assert_eq!(crate::storage::calculate_streak(&counts), 3);
     }
 
     #[test]
     fn streak_is_zero_without_activity() {
         let counts = vec![(d(2025, 1, 1), 0), (d(2025, 1, 2), 0)];
-        assert_eq!(calculate_streak(&counts), 0);
+        assert_eq!(crate::storage::calculate_streak(&counts), 0);
     }
 }
