@@ -111,11 +111,11 @@ fn draw_timer_view(frame: &mut Frame, app: &App, area: Rect, mode: LayoutMode) {
         draw_footer(frame, app, chunks[6]);
     } else {
         let chunks = Layout::vertical([
-            Constraint::Length(3),                // Header
+            Constraint::Length(3),         // Header
             Constraint::Min(timer_height), // Timer
-            Constraint::Length(2),                // Pomodoro counter
-            Constraint::Length(3),                // Progress bar
-            Constraint::Length(3),                // Footer
+            Constraint::Length(2),         // Pomodoro counter
+            Constraint::Length(3),         // Progress bar
+            Constraint::Length(3),         // Footer
         ])
         .split(area);
 
