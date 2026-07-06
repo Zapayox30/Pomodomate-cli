@@ -64,22 +64,22 @@ pub fn draw_mascot(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 // ── Color Palette based on Provided Image ────────────────────────────────────
-const TOMATO_BODY: Color = Color::Rgb(238, 82, 63);      // Main Red
-const TOMATO_SHADOW: Color = Color::Rgb(207, 59, 43);    // Shadow Red
-const OUTLINE: Color = Color::Rgb(60, 20, 10);           // Deep Brown/Black Outline
-const STEM: Color = Color::Rgb(61, 104, 34);             // Dark Green Stem
-const LEAF: Color = Color::Rgb(111, 176, 62);            // Light Green Leaf
-const GLASSES_RIM: Color = Color::Rgb(26, 26, 26);       // Sunglasses Rim
-const GLASSES_LENS: Color = Color::Rgb(10, 10, 10);      // Dark Lens
-const REFLECTION: Color = Color::Rgb(255, 255, 255);     // Lens Highlight
-const MOUTH_DARK: Color = Color::Rgb(74, 26, 26);        // Inside Mouth
-const TONGUE: Color = Color::Rgb(238, 123, 114);         // Pink Tongue
-const ZZZ: Color = Color::Rgb(155, 89, 182);             // Sleep Zzz color
-const SWEAT: Color = Color::Rgb(100, 200, 255);          // Last minute sweat color
-const SWEAT_OUTLINE: Color = Color::Rgb(20, 80, 120);    // Sweat shadow
+const TOMATO_BODY: Color = Color::Rgb(238, 82, 63); // Main Red
+const TOMATO_SHADOW: Color = Color::Rgb(207, 59, 43); // Shadow Red
+const OUTLINE: Color = Color::Rgb(60, 20, 10); // Deep Brown/Black Outline
+const STEM: Color = Color::Rgb(61, 104, 34); // Dark Green Stem
+const LEAF: Color = Color::Rgb(111, 176, 62); // Light Green Leaf
+const GLASSES_RIM: Color = Color::Rgb(26, 26, 26); // Sunglasses Rim
+const GLASSES_LENS: Color = Color::Rgb(10, 10, 10); // Dark Lens
+const REFLECTION: Color = Color::Rgb(255, 255, 255); // Lens Highlight
+const MOUTH_DARK: Color = Color::Rgb(74, 26, 26); // Inside Mouth
+const TONGUE: Color = Color::Rgb(238, 123, 114); // Pink Tongue
+const ZZZ: Color = Color::Rgb(155, 89, 182); // Sleep Zzz color
+const SWEAT: Color = Color::Rgb(100, 200, 255); // Last minute sweat color
+const SWEAT_OUTLINE: Color = Color::Rgb(20, 80, 120); // Sweat shadow
 
 fn generate_sprite(state: MascotState, tick: u64) -> Vec<Line<'static>> {
-    let frame_idx = (tick / 4) % 4; 
+    let frame_idx = (tick / 4) % 4;
     let is_fast = state == MascotState::LastMinute;
     let bob_frame = if is_fast { (tick / 2) % 4 } else { frame_idx };
 
@@ -95,21 +95,21 @@ fn generate_sprite(state: MascotState, tick: u64) -> Vec<Line<'static>> {
 
     // The pixel grid perfectly matching the uploaded image (Domate with Sunglasses)
     let base_grid = vec![
-        "         LL SSS         ", // 0
-        "      LLLL  LS  LLLL    ", // 1
-        "     LL      S     LL   ", // 2
-        "   OOOOOOOOOOOOOOOOOO   ", // 3
-        "  OOrrrrrrrrrrrrrrrrOO  ", // 4
-        " OrrrrrEErrrrrrrrEErrrO ", // 5  E = Eyebrow
-        " OrrrGGGGGGGGGGGGGGGGGrO", // 6  G = Glasses rim
-        "OrrGGgWggggGGGGgWggggGGrO",// 7  g = lens, W = reflection
-        "OrGGggggggGGGGggggggGGdO", // 8  d = shadow
-        "OrGGggggggGGGGggggggGGdO", // 9
-        "OrrrGGGGGGGrrrrGGGGGGGdO", // 10
-        " OrrrrddrrMMMMMMrrddddrO", // 11 M = Mouth dark
-        "  OOdddrrrMMTTMMrrddddOO", // 12 T = Tongue
-        "    OOddddddddddddddOO  ", // 13
-        "      OOOOOOOOOOOOOO    ", // 14
+        "         LL SSS         ",  // 0
+        "      LLLL  LS  LLLL    ",  // 1
+        "     LL      S     LL   ",  // 2
+        "   OOOOOOOOOOOOOOOOOO   ",  // 3
+        "  OOrrrrrrrrrrrrrrrrOO  ",  // 4
+        " OrrrrrEErrrrrrrrEErrrO ",  // 5  E = Eyebrow
+        " OrrrGGGGGGGGGGGGGGGGGrO",  // 6  G = Glasses rim
+        "OrrGGgWggggGGGGgWggggGGrO", // 7  g = lens, W = reflection
+        "OrGGggggggGGGGggggggGGdO",  // 8  d = shadow
+        "OrGGggggggGGGGggggggGGdO",  // 9
+        "OrrrGGGGGGGrrrrGGGGGGGdO",  // 10
+        " OrrrrddrrMMMMMMrrddddrO",  // 11 M = Mouth dark
+        "  OOdddrrrMMTTMMrrddddOO",  // 12 T = Tongue
+        "    OOddddddddddddddOO  ",  // 13
+        "      OOOOOOOOOOOOOO    ",  // 14
     ];
 
     let mut lines = Vec::new();
@@ -132,7 +132,12 @@ fn generate_sprite(state: MascotState, tick: u64) -> Vec<Line<'static>> {
                 // Effect particles and background
                 match c {
                     'z' => spans.push(Span::styled(" z", Style::default().fg(ZZZ))),
-                    'Z' => spans.push(Span::styled(" Z", Style::default().fg(ZZZ).add_modifier(ratatui::style::Modifier::BOLD))),
+                    'Z' => spans.push(Span::styled(
+                        " Z",
+                        Style::default()
+                            .fg(ZZZ)
+                            .add_modifier(ratatui::style::Modifier::BOLD),
+                    )),
                     '!' => spans.push(Span::styled(" ⚡", Style::default())),
                     '*' => spans.push(Span::styled(" ✨", Style::default())),
                     's' => spans.push(Span::styled("  ", Style::default().bg(SWEAT_OUTLINE))),
@@ -154,71 +159,132 @@ fn generate_sprite(state: MascotState, tick: u64) -> Vec<Line<'static>> {
     lines
 }
 
-fn modify_pixel(c: char, row: usize, col: usize, state: MascotState, _frame: u64, abs_tick: u64) -> char {
+fn modify_pixel(
+    c: char,
+    row: usize,
+    col: usize,
+    state: MascotState,
+    _frame: u64,
+    abs_tick: u64,
+) -> char {
     match state {
         MascotState::Working => {
             // Eyebrows bob slightly out of sync with body
-            if c == 'E' && abs_tick % 8 >= 4 { return 'r'; }
-            if c == 'r' && row == 4 && (col == 7 || col == 8 || col == 17 || col == 18) && abs_tick % 8 >= 4 { return 'E'; }
+            if c == 'E' && abs_tick % 8 >= 4 {
+                return 'r';
+            }
+            if c == 'r'
+                && row == 4
+                && (col == 7 || col == 8 || col == 17 || col == 18)
+                && abs_tick % 8 >= 4
+            {
+                return 'E';
+            }
         }
         MascotState::ShortBreak => {
             // Sleeping: Eyebrows disappear, small O mouth
-            if c == 'E' { return 'r'; }
-            if c == 'T' { return 'M'; }
-            if c == 'M' && (col <= 10 || col >= 15) { return 'd'; } // narrow mouth
+            if c == 'E' {
+                return 'r';
+            }
+            if c == 'T' {
+                return 'M';
+            }
+            if c == 'M' && (col <= 10 || col >= 15) {
+                return 'd';
+            } // narrow mouth
 
             // Zzz particles
             let slow_frame = (abs_tick / 8) % 4;
-            if slow_frame == 0 && row == 1 && col == 22 { return 'z'; }
-            if slow_frame == 1 && row == 0 && col == 24 { return 'Z'; }
+            if slow_frame == 0 && row == 1 && col == 22 {
+                return 'z';
+            }
+            if slow_frame == 1 && row == 0 && col == 24 {
+                return 'Z';
+            }
         }
         MascotState::LongBreak => {
             // Content/Chill: Sunglasses stay identical, big mouth, eyebrows standard
-            if c == 'M' && col == 11 { return 'T'; }
+            if c == 'M' && col == 11 {
+                return 'T';
+            }
         }
         MascotState::LastMinute => {
             // Panic: Eyebrows arched inverse? Hard to do. Flat mouth. Sweat drops.
-            if c == 'T' { return 'r'; }
-            if c == 'M' && row == 12 { return 'r'; } // Flat gritted teeth?
-            
+            if c == 'T' {
+                return 'r';
+            }
+            if c == 'M' && row == 12 {
+                return 'r';
+            } // Flat gritted teeth?
+
             // Sweat drops falling down the sides
             let fall = (abs_tick / 2) % 6;
             let sweat_row = 4 + fall as usize;
-            
+
             // Left sweat drop
-            if row == sweat_row && col == 2 { return 'w'; } // inside drop
-            if row == sweat_row && (col == 1 || col == 3) { return 's'; } // outline
-            
+            if row == sweat_row && col == 2 {
+                return 'w';
+            } // inside drop
+            if row == sweat_row && (col == 1 || col == 3) {
+                return 's';
+            } // outline
+
             // Right sweat drop (offset)
             let right_fall = ((abs_tick / 2) + 3) % 6;
             let right_sweat_row = 5 + right_fall as usize;
-            if row == right_sweat_row && col == 22 { return 'w'; }
-            if row == right_sweat_row && (col == 21 || col == 23) { return 's'; }
+            if row == right_sweat_row && col == 22 {
+                return 'w';
+            }
+            if row == right_sweat_row && (col == 21 || col == 23) {
+                return 's';
+            }
         }
         MascotState::Completed => {
             // Happy celebration!
             if (abs_tick / 2).is_multiple_of(2) {
                 // Tongue wags
-                if c == 'T' && col == 12 { return 'M'; }
-                if c == 'M' && col == 14 { return 'T'; }
+                if c == 'T' && col == 12 {
+                    return 'M';
+                }
+                if c == 'M' && col == 14 {
+                    return 'T';
+                }
             }
             // Sparkles
-            if (abs_tick / 2).is_multiple_of(2) && row == 2 && col == 1 { return '*'; }
-            if !(abs_tick / 2).is_multiple_of(2) && row == 3 && col == 22 { return '*'; }
+            if (abs_tick / 2).is_multiple_of(2) && row == 2 && col == 1 {
+                return '*';
+            }
+            if !(abs_tick / 2).is_multiple_of(2) && row == 3 && col == 22 {
+                return '*';
+            }
         }
         MascotState::Idle => {
             // Neutral waiting face: no eyebrows, small relaxed mouth
-            if c == 'E' { return 'r'; }
-            if c == 'T' { return 'M'; }
-            if c == 'M' && (col <= 10 || col >= 15) { return 'd'; }
+            if c == 'E' {
+                return 'r';
+            }
+            if c == 'T' {
+                return 'M';
+            }
+            if c == 'M' && (col <= 10 || col >= 15) {
+                return 'd';
+            }
         }
         MascotState::Sunrise => {
             // Morning welcome: happy face plus slow sparkles greeting the day
             let slow = (abs_tick / 8) % 4;
-            if slow == 0 && row == 1 && col == 1 { return '*'; }
-            if slow == 1 && row == 0 && col == 22 { return '*'; }
-            if slow == 2 && row == 2 && col == 23 { return '*'; }
-            if slow == 3 && row == 3 && col == 0 { return '*'; }
+            if slow == 0 && row == 1 && col == 1 {
+                return '*';
+            }
+            if slow == 1 && row == 0 && col == 22 {
+                return '*';
+            }
+            if slow == 2 && row == 2 && col == 23 {
+                return '*';
+            }
+            if slow == 3 && row == 3 && col == 0 {
+                return '*';
+            }
         }
     }
     c
@@ -229,7 +295,7 @@ fn char_to_color(c: char) -> Option<Color> {
         'O' => Some(OUTLINE),
         'r' => Some(TOMATO_BODY),
         'd' => Some(TOMATO_SHADOW),
-        'E' => Some(OUTLINE),          // Eyebrows use the outline color
+        'E' => Some(OUTLINE), // Eyebrows use the outline color
         'G' => Some(GLASSES_RIM),
         'g' => Some(GLASSES_LENS),
         'W' => Some(REFLECTION),

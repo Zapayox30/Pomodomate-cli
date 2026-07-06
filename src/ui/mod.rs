@@ -13,21 +13,21 @@ use crate::app::{App, View};
 use crate::timer::{TimerPhase, TimerStatus};
 
 // ── Pomodomate color palette ─────────────────────────────────────────
-pub const TOMATO_RED: Color = Color::Rgb(192, 57, 43);     // #C0392B
-pub const NATURE_GREEN: Color = Color::Rgb(39, 174, 96);   // #27AE60
+pub const TOMATO_RED: Color = Color::Rgb(192, 57, 43); // #C0392B
+pub const NATURE_GREEN: Color = Color::Rgb(39, 174, 96); // #27AE60
 #[allow(dead_code)]
-pub const CHEEK_PINK: Color = Color::Rgb(250, 219, 216);   // #FADBD8
-pub const DARK_BASE: Color = Color::Rgb(28, 40, 51);       // #1C2833
-pub const SOFT_WHITE: Color = Color::Rgb(236, 240, 241);   // #ECF0F1
-pub const WARM_YELLOW: Color = Color::Rgb(243, 156, 18);   // #F39C12
+pub const CHEEK_PINK: Color = Color::Rgb(250, 219, 216); // #FADBD8
+pub const DARK_BASE: Color = Color::Rgb(28, 40, 51); // #1C2833
+pub const SOFT_WHITE: Color = Color::Rgb(236, 240, 241); // #ECF0F1
+pub const WARM_YELLOW: Color = Color::Rgb(243, 156, 18); // #F39C12
 pub const ACCENT_PURPLE: Color = Color::Rgb(142, 68, 173); // #8E44AD
 
 // Extended palette
-const DARK_BG: Color = Color::Rgb(20, 30, 40);             // Darker background
-const BORDER_DIM: Color = Color::Rgb(52, 73, 94);          // Subtle border
-const BORDER_GLOW: Color = Color::Rgb(80, 110, 140);       // Active border glow
-const MUTED_TEXT: Color = Color::Rgb(127, 140, 141);        // Muted gray text
-const PROGRESS_BG: Color = Color::Rgb(44, 62, 80);         // Progress bar background
+const DARK_BG: Color = Color::Rgb(20, 30, 40); // Darker background
+const BORDER_DIM: Color = Color::Rgb(52, 73, 94); // Subtle border
+const BORDER_GLOW: Color = Color::Rgb(80, 110, 140); // Active border glow
+const MUTED_TEXT: Color = Color::Rgb(127, 140, 141); // Muted gray text
+const PROGRESS_BG: Color = Color::Rgb(44, 62, 80); // Progress bar background
 
 /// Get phase-specific color
 fn phase_color(phase: &TimerPhase) -> Color {
@@ -55,14 +55,14 @@ pub fn draw(frame: &mut Frame, app: &App) {
 /// Render the main timer view with Domate mascot.
 fn draw_timer_view(frame: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::vertical([
-        Constraint::Length(3),  // Header
-        Constraint::Length(1),  // Spacer
-        Constraint::Min(8),     // Mascot (pixel art takes roughly 6-8 lines)
-        Constraint::Length(5),  // Timer (big numbers are 5 lines)
-        Constraint::Length(1),  // Spacer
-        Constraint::Length(2),  // Pomodoro counter
-        Constraint::Length(3),  // Progress bar
-        Constraint::Length(3),  // Footer
+        Constraint::Length(3), // Header
+        Constraint::Length(1), // Spacer
+        Constraint::Min(8),    // Mascot (pixel art takes roughly 6-8 lines)
+        Constraint::Length(5), // Timer (big numbers are 5 lines)
+        Constraint::Length(1), // Spacer
+        Constraint::Length(2), // Pomodoro counter
+        Constraint::Length(3), // Progress bar
+        Constraint::Length(3), // Footer
     ])
     .split(area);
 
@@ -77,9 +77,9 @@ fn draw_timer_view(frame: &mut Frame, app: &App, area: Rect) {
 /// Render the heatmap view.
 fn draw_heatmap_view(frame: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::vertical([
-        Constraint::Length(3),  // Header
+        Constraint::Length(3), // Header
         Constraint::Min(10),   // Heatmap
-        Constraint::Length(3),  // Footer
+        Constraint::Length(3), // Footer
     ])
     .split(area);
 
@@ -108,9 +108,15 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
 
     let header = Paragraph::new(Line::from(vec![
         Span::styled("  🍅 ", Style::default().fg(TOMATO_RED)),
-        Span::styled("Pomodomate", Style::default().fg(TOMATO_RED).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Pomodomate",
+            Style::default().fg(TOMATO_RED).add_modifier(Modifier::BOLD),
+        ),
         Span::styled("  ╱  ", Style::default().fg(BORDER_DIM)),
-        Span::styled(app.timer.phase.label(), Style::default().fg(pc).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            app.timer.phase.label(),
+            Style::default().fg(pc).add_modifier(Modifier::BOLD),
+        ),
         Span::styled("  ╱  ", Style::default().fg(BORDER_DIM)),
         Span::styled(status_icon.0, Style::default().fg(status_icon.1)),
         Span::styled(format!(" {}", status_text), Style::default().fg(SOFT_WHITE)),
@@ -149,12 +155,10 @@ fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(""));
 
     // Phase label above timer
-    lines.push(Line::from(vec![
-        Span::styled(
-            app.timer.phase.label(),
-            Style::default().fg(pc).add_modifier(Modifier::BOLD),
-        ),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        app.timer.phase.label(),
+        Style::default().fg(pc).add_modifier(Modifier::BOLD),
+    )]));
     lines.push(Line::from(""));
 
     // Big numbers
@@ -286,18 +290,23 @@ fn draw_pomodoro_counter(frame: &mut Frame, app: &App, area: Rect) {
     let cycle_pos = app.timer.cycle_position;
     let interval = app.config.long_break_interval;
 
-    let mut spans: Vec<Span<'static>> = vec![
-        Span::styled("  ", Style::default()),
-    ];
+    let mut spans: Vec<Span<'static>> = vec![Span::styled("  ", Style::default())];
 
     // Show tomatoes for current cycle
     for i in 0..interval {
-        if i < cycle_pos || (i == cycle_pos && app.timer.phase == TimerPhase::Work && app.timer.status == TimerStatus::Completed) {
+        if i < cycle_pos
+            || (i == cycle_pos
+                && app.timer.phase == TimerPhase::Work
+                && app.timer.status == TimerStatus::Completed)
+        {
             // Completed in this cycle
             spans.push(Span::styled(" 🍅", Style::default()));
         } else if i == cycle_pos && app.timer.phase == TimerPhase::Work {
             // Current (in progress)
-            spans.push(Span::styled(" 🍅", Style::default().add_modifier(Modifier::DIM)));
+            spans.push(Span::styled(
+                " 🍅",
+                Style::default().add_modifier(Modifier::DIM),
+            ));
         } else {
             // Not yet
             spans.push(Span::styled(" ○ ", Style::default().fg(BORDER_DIM)));
@@ -310,13 +319,12 @@ fn draw_pomodoro_counter(frame: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(MUTED_TEXT),
     ));
 
-    let counter = Paragraph::new(Line::from(spans))
-        .block(
-            Block::default()
-                .borders(Borders::TOP)
-                .border_style(Style::default().fg(BORDER_DIM))
-                .style(Style::default().bg(DARK_BASE)),
-        );
+    let counter = Paragraph::new(Line::from(spans)).block(
+        Block::default()
+            .borders(Borders::TOP)
+            .border_style(Style::default().fg(BORDER_DIM))
+            .style(Style::default().bg(DARK_BASE)),
+    );
 
     frame.render_widget(counter, area);
 }
@@ -355,15 +363,38 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
 
     let footer = Paragraph::new(Line::from(vec![
         Span::styled("  ", Style::default()),
-        Span::styled("space", Style::default().fg(BORDER_GLOW).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "space",
+            Style::default()
+                .fg(BORDER_GLOW)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" pause  ", Style::default().fg(MUTED_TEXT)),
-        Span::styled("r", Style::default().fg(BORDER_GLOW).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "r",
+            Style::default()
+                .fg(BORDER_GLOW)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" reset  ", Style::default().fg(MUTED_TEXT)),
-        Span::styled("s", Style::default().fg(BORDER_GLOW).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "s",
+            Style::default()
+                .fg(BORDER_GLOW)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" skip  ", Style::default().fg(MUTED_TEXT)),
-        Span::styled("h", Style::default().fg(BORDER_GLOW).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "h",
+            Style::default()
+                .fg(BORDER_GLOW)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(format!(" {}  ", view_name), Style::default().fg(MUTED_TEXT)),
-        Span::styled("q", Style::default().fg(TOMATO_RED).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "q",
+            Style::default().fg(TOMATO_RED).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" quit", Style::default().fg(MUTED_TEXT)),
     ]))
     .block(

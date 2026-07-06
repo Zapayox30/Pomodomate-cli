@@ -115,8 +115,9 @@ impl Storage {
             if line.trim().is_empty() {
                 continue;
             }
-            let session: Session = serde_json::from_str(line)
-                .with_context(|| format!("Failed to parse a session in {}", self.data_path.display()))?;
+            let session: Session = serde_json::from_str(line).with_context(|| {
+                format!("Failed to parse a session in {}", self.data_path.display())
+            })?;
             sessions.push(session);
         }
 
@@ -138,7 +139,9 @@ impl Storage {
             let legacy: Vec<Session> = serde_json::from_str(&content)
                 .with_context(|| format!("Failed to parse {}", self.legacy_path.display()))?;
             for session in &legacy {
-                lines.push_str(&serde_json::to_string(session).context("Failed to serialize session")?);
+                lines.push_str(
+                    &serde_json::to_string(session).context("Failed to serialize session")?,
+                );
                 lines.push('\n');
             }
         }
@@ -227,7 +230,9 @@ mod tests {
     fn save_and_load_roundtrip() {
         let (storage, _dir) = temp_storage();
         storage.save_session(&session("work", true)).unwrap();
-        storage.save_session(&session("short_break", false)).unwrap();
+        storage
+            .save_session(&session("short_break", false))
+            .unwrap();
 
         let loaded = storage.load_sessions().unwrap();
         assert_eq!(loaded.len(), 2);

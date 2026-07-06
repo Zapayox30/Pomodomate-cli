@@ -12,11 +12,11 @@ use crate::ui::{DARK_BASE, NATURE_GREEN, SOFT_WHITE, TOMATO_RED};
 /// Intensity levels for the heatmap cells.
 fn intensity_color(count: u32) -> Color {
     match count {
-        0 => Color::Rgb(44, 62, 80),       // Empty — dark blue-gray
-        1 => Color::Rgb(72, 145, 83),       // Light green
-        2 => Color::Rgb(57, 172, 57),       // Medium green
-        3..=4 => Color::Rgb(39, 174, 96),   // Standard green
-        _ => Color::Rgb(25, 210, 70),       // Intense green
+        0 => Color::Rgb(44, 62, 80),      // Empty — dark blue-gray
+        1 => Color::Rgb(72, 145, 83),     // Light green
+        2 => Color::Rgb(57, 172, 57),     // Medium green
+        3..=4 => Color::Rgb(39, 174, 96), // Standard green
+        _ => Color::Rgb(25, 210, 70),     // Intense green
     }
 }
 
@@ -40,9 +40,7 @@ pub fn draw_heatmap(frame: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "📊 Pomodoro Activity — Last 365 Days",
-        Style::default()
-            .fg(SOFT_WHITE)
-            .add_modifier(Modifier::BOLD),
+        Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from(""));
 
@@ -62,9 +60,10 @@ pub fn draw_heatmap(frame: &mut Frame, app: &App, area: Rect) {
     let day_labels = ["Mon", "   ", "Wed", "   ", "Fri", "   ", "Sun"];
 
     for (row_idx, day_label) in day_labels.iter().enumerate() {
-        let mut row_spans: Vec<Span<'static>> = vec![
-            Span::styled(format!("{} ", day_label), Style::default().fg(Color::DarkGray)),
-        ];
+        let mut row_spans: Vec<Span<'static>> = vec![Span::styled(
+            format!("{} ", day_label),
+            Style::default().fg(Color::DarkGray),
+        )];
 
         for week in grid {
             match week[row_idx] {
@@ -114,16 +113,14 @@ pub fn draw_heatmap(frame: &mut Frame, app: &App, area: Rect) {
         ),
     ]));
 
-    let heatmap = Paragraph::new(lines)
-        .alignment(Alignment::Center)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray))
-                .title(" 🍅 Pomodomate Heatmap ")
-                .title_alignment(Alignment::Center)
-                .style(Style::default().bg(DARK_BASE)),
-        );
+    let heatmap = Paragraph::new(lines).alignment(Alignment::Center).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray))
+            .title(" 🍅 Pomodomate Heatmap ")
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(DARK_BASE)),
+    );
 
     frame.render_widget(heatmap, area);
 }
@@ -162,8 +159,7 @@ fn month_label_row(grid: &[[Cell; 7]]) -> String {
     use chrono::Datelike;
 
     const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
 
     let mut row = vec![' '; grid.len() * 2];
@@ -228,9 +224,21 @@ mod tests {
         assert_eq!(grid.len(), 2);
         assert!(grid[0][0].is_none(), "Mon of week 1 predates the range");
         assert!(grid[0][1].is_none(), "Tue of week 1 predates the range");
-        assert_eq!(grid[0][2], Some((d(2025, 1, 1), 1)), "Jan 1 lands on Wednesday");
-        assert_eq!(grid[0][6], Some((d(2025, 1, 5), 5)), "Jan 5 lands on Sunday");
-        assert_eq!(grid[1][0], Some((d(2025, 1, 6), 6)), "Jan 6 starts the next week");
+        assert_eq!(
+            grid[0][2],
+            Some((d(2025, 1, 1), 1)),
+            "Jan 1 lands on Wednesday"
+        );
+        assert_eq!(
+            grid[0][6],
+            Some((d(2025, 1, 5), 5)),
+            "Jan 5 lands on Sunday"
+        );
+        assert_eq!(
+            grid[1][0],
+            Some((d(2025, 1, 6), 6)),
+            "Jan 6 starts the next week"
+        );
         assert_eq!(grid[1][1], Some((d(2025, 1, 7), 7)));
         assert!(grid[1][2].is_none(), "rest of week 2 is beyond the range");
     }

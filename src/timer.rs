@@ -95,7 +95,6 @@ impl Timer {
 
     /// Advance the timer by one second. Returns `true` if the phase just completed.
     pub fn tick(&mut self) -> bool {
-
         if self.status != TimerStatus::Running {
             return false;
         }
@@ -232,7 +231,11 @@ mod tests {
     fn tick_only_counts_down_while_running() {
         let mut t = timer();
         assert!(!t.tick());
-        assert_eq!(t.remaining, Duration::from_secs(25 * 60), "idle timer must not advance");
+        assert_eq!(
+            t.remaining,
+            Duration::from_secs(25 * 60),
+            "idle timer must not advance"
+        );
 
         t.toggle_pause(); // Idle -> Running
         assert!(!t.tick());
@@ -240,7 +243,11 @@ mod tests {
 
         t.toggle_pause(); // Running -> Paused
         assert!(!t.tick());
-        assert_eq!(t.remaining, Duration::from_secs(25 * 60 - 1), "paused timer must not advance");
+        assert_eq!(
+            t.remaining,
+            Duration::from_secs(25 * 60 - 1),
+            "paused timer must not advance"
+        );
     }
 
     #[test]
@@ -273,7 +280,10 @@ mod tests {
         }
         assert_eq!(t.phase, TimerPhase::LongBreak);
         assert_eq!(t.remaining, Duration::from_secs(15 * 60));
-        assert_eq!(t.cycle_position, 0, "cycle resets after long break is scheduled");
+        assert_eq!(
+            t.cycle_position, 0,
+            "cycle resets after long break is scheduled"
+        );
     }
 
     #[test]
@@ -281,7 +291,10 @@ mod tests {
         let mut t = timer();
         t.skip();
         assert_eq!(t.phase, TimerPhase::ShortBreak);
-        assert_eq!(t.pomodoros_completed, 0, "a skipped work session is not a completed pomodoro");
+        assert_eq!(
+            t.pomodoros_completed, 0,
+            "a skipped work session is not a completed pomodoro"
+        );
     }
 
     #[test]
@@ -293,7 +306,11 @@ mod tests {
         }
         // Four skipped "cycles" later we must still be headed to a short break
         t.skip();
-        assert_eq!(t.phase, TimerPhase::ShortBreak, "skips must not earn a long break");
+        assert_eq!(
+            t.phase,
+            TimerPhase::ShortBreak,
+            "skips must not earn a long break"
+        );
         assert_eq!(t.pomodoros_completed, 0);
     }
 
@@ -334,7 +351,10 @@ mod tests {
     fn last_minute_only_while_running() {
         let mut t = timer();
         t.remaining = Duration::from_secs(59);
-        assert!(!t.is_last_minute(), "idle timer is not in last-minute state");
+        assert!(
+            !t.is_last_minute(),
+            "idle timer is not in last-minute state"
+        );
         t.status = TimerStatus::Running;
         assert!(t.is_last_minute());
         t.remaining = Duration::from_secs(61);
