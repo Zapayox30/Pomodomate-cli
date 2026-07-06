@@ -8,28 +8,19 @@ use ratatui::{
 
 use crate::app::App;
 use crate::timer::{TimerPhase, TimerStatus};
-use crate::ui::{CHEEK_PINK, DARK_BASE, NATURE_GREEN, SOFT_WHITE, TOMATO_RED, WARM_YELLOW};
+use crate::ui::DARK_BASE;
 
 /// Visual states for the Domate mascot animation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MascotState {
-    /// Normal working state — focused expression, slow blink
     Working,
-    /// Short break — happy closed eyes, zzz floating
     ShortBreak,
-    /// Long break — stretching, relaxed face
     LongBreak,
-    /// Last 60 seconds — sweating, wide eyes, urgency
     LastMinute,
-    /// Phase just completed — jumping, stars, euphoria
     Completed,
-    /// First session of the day (future feature)
-    #[allow(dead_code)]
-    Dawn,
 }
 
 impl MascotState {
-    /// Determine the mascot state from the current timer state.
     pub fn from_timer(app: &App) -> Self {
         if app.timer.status == TimerStatus::Completed {
             return MascotState::Completed;
@@ -45,21 +36,11 @@ impl MascotState {
     }
 }
 
-/// A single frame of mascot animation, as colored text lines.
-/// (Will be used for more complex rendering in future versions)
-#[allow(dead_code)]
-struct MascotFrame {
-    lines: Vec<Vec<(char, Color)>>,
-}
-
-/// Draw the Domate mascot in the given area.
 pub fn draw_mascot(frame: &mut Frame, app: &App, area: Rect) {
     let state = MascotState::from_timer(app);
     let tick = app.timer.tick;
 
-    // Select frame based on state and tick (2 frames per state for animation)
-    let frame_index = (tick / 2) % 2; // Change frame every 2 ticks
-    let mascot_lines = get_mascot_frame(state, frame_index as usize);
+    let mascot_lines = generate_sprite(state, tick);
 
     let paragraph = Paragraph::new(mascot_lines)
         .alignment(Alignment::Center)
@@ -68,394 +49,165 @@ pub fn draw_mascot(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(paragraph, area);
 }
 
-/// Get the text lines for a specific mascot state and frame.
-fn get_mascot_frame(state: MascotState, frame_idx: usize) -> Vec<Line<'static>> {
+// ── Color Palette based on Provided Image ────────────────────────────────────
+const TOMATO_BODY: Color = Color::Rgb(238, 82, 63);      // Main Red
+const TOMATO_SHADOW: Color = Color::Rgb(207, 59, 43);    // Shadow Red
+const OUTLINE: Color = Color::Rgb(60, 20, 10);           // Deep Brown/Black Outline
+const STEM: Color = Color::Rgb(61, 104, 34);             // Dark Green Stem
+const LEAF: Color = Color::Rgb(111, 176, 62);            // Light Green Leaf
+const GLASSES_RIM: Color = Color::Rgb(26, 26, 26);       // Sunglasses Rim
+const GLASSES_LENS: Color = Color::Rgb(10, 10, 10);      // Dark Lens
+const REFLECTION: Color = Color::Rgb(255, 255, 255);     // Lens Highlight
+const MOUTH_DARK: Color = Color::Rgb(74, 26, 26);        // Inside Mouth
+const TONGUE: Color = Color::Rgb(238, 123, 114);         // Pink Tongue
+const ZZZ: Color = Color::Rgb(155, 89, 182);             // Sleep Zzz color
+const SWEAT: Color = Color::Rgb(100, 200, 255);          // Last minute sweat color
+const SWEAT_OUTLINE: Color = Color::Rgb(20, 80, 120);    // Sweat shadow
+
+fn generate_sprite(state: MascotState, tick: u64) -> Vec<Line<'static>> {
+    let frame_idx = (tick / 4) % 4; 
+    let is_fast = state == MascotState::LastMinute;
+    let bob_frame = if is_fast { (tick / 2) % 4 } else { frame_idx };
+
+    // Vertical bobbing
+    let is_bob_up = match state {
+        MascotState::Working => bob_frame == 1 || bob_frame == 2,
+        MascotState::ShortBreak | MascotState::LongBreak => (tick / 8) % 2 == 0,
+        MascotState::LastMinute => bob_frame % 2 == 0,
+        MascotState::Completed => bob_frame == 0 || bob_frame == 2,
+    };
+
+    // The pixel grid perfectly matching the uploaded image (Domate with Sunglasses)
+    let base_grid = vec![
+        "         LL SSS         ", // 0
+        "      LLLL  LS  LLLL    ", // 1
+        "     LL      S     LL   ", // 2
+        "   OOOOOOOOOOOOOOOOOO   ", // 3
+        "  OOrrrrrrrrrrrrrrrrOO  ", // 4
+        " OrrrrrEErrrrrrrrEErrrO ", // 5  E = Eyebrow
+        " OrrrGGGGGGGGGGGGGGGGGrO", // 6  G = Glasses rim
+        "OrrGGgWggggGGGGgWggggGGrO",// 7  g = lens, W = reflection
+        "OrGGggggggGGGGggggggGGdO", // 8  d = shadow
+        "OrGGggggggGGGGggggggGGdO", // 9
+        "OrrrGGGGGGGrrrrGGGGGGGdO", // 10
+        " OrrrrddrrMMMMMMrrddddrO", // 11 M = Mouth dark
+        "  OOdddrrrMMTTMMrrddddOO", // 12 T = Tongue
+        "    OOddddddddddddddOO  ", // 13
+        "      OOOOOOOOOOOOOO    ", // 14
+    ];
+
+    let mut lines = Vec::new();
+
+    if !is_bob_up {
+        lines.push(Line::from(""));
+    }
+
+    for row_idx in 0..base_grid.len() {
+        let mut spans = Vec::new();
+        let row_chars: Vec<char> = base_grid[row_idx].chars().collect();
+
+        for col_idx in 0..row_chars.len() {
+            let mut c = row_chars[col_idx];
+            c = modify_pixel(c, row_idx, col_idx, state, frame_idx, tick);
+
+            if let Some(color) = char_to_color(c) {
+                // Colored "doble espacio" for a perfect square pixel
+                spans.push(Span::styled("  ", Style::default().bg(color)));
+            } else {
+                // Effect particles and background
+                match c {
+                    'z' => spans.push(Span::styled(" z", Style::default().fg(ZZZ))),
+                    'Z' => spans.push(Span::styled(" Z", Style::default().fg(ZZZ).add_modifier(ratatui::style::Modifier::BOLD))),
+                    '!' => spans.push(Span::styled(" ⚡", Style::default())),
+                    '*' => spans.push(Span::styled(" ✨", Style::default())),
+                    's' => spans.push(Span::styled("  ", Style::default().bg(SWEAT_OUTLINE))),
+                    'w' => spans.push(Span::styled("  ", Style::default().bg(SWEAT))),
+                    _ => spans.push(Span::styled("  ", Style::default().bg(DARK_BASE))), // Transparent
+                }
+            }
+        }
+        lines.push(Line::from(spans));
+    }
+
+    if is_bob_up {
+        lines.push(Line::from(""));
+        lines.push(Line::from(""));
+    } else {
+        lines.push(Line::from(""));
+    }
+
+    lines
+}
+
+fn modify_pixel(c: char, row: usize, col: usize, state: MascotState, _frame: u64, abs_tick: u64) -> char {
     match state {
-        MascotState::Working => working_frames(frame_idx),
-        MascotState::ShortBreak => short_break_frames(frame_idx),
-        MascotState::LongBreak => long_break_frames(frame_idx),
-        MascotState::LastMinute => last_minute_frames(frame_idx),
-        MascotState::Completed => completed_frames(frame_idx),
-        MascotState::Dawn => working_frames(frame_idx), // Placeholder
+        MascotState::Working => {
+            // Eyebrows bob slightly out of sync with body
+            if c == 'E' && abs_tick % 8 >= 4 { return 'r'; }
+            if c == 'r' && row == 4 && (col == 7 || col == 8 || col == 17 || col == 18) && abs_tick % 8 >= 4 { return 'E'; }
+        }
+        MascotState::ShortBreak => {
+            // Sleeping: Eyebrows disappear, small O mouth
+            if c == 'E' { return 'r'; }
+            if c == 'T' { return 'M'; }
+            if c == 'M' && (col <= 10 || col >= 15) { return 'd'; } // narrow mouth
+
+            // Zzz particles
+            let slow_frame = (abs_tick / 8) % 4;
+            if slow_frame == 0 && row == 1 && col == 22 { return 'z'; }
+            if slow_frame == 1 && row == 0 && col == 24 { return 'Z'; }
+        }
+        MascotState::LongBreak => {
+            // Content/Chill: Sunglasses stay identical, big mouth, eyebrows standard
+            if c == 'M' && col == 11 { return 'T'; }
+        }
+        MascotState::LastMinute => {
+            // Panic: Eyebrows arched inverse? Hard to do. Flat mouth. Sweat drops.
+            if c == 'T' { return 'r'; }
+            if c == 'M' && row == 12 { return 'r'; } // Flat gritted teeth?
+            
+            // Sweat drops falling down the sides
+            let fall = (abs_tick / 2) % 6;
+            let sweat_row = 4 + fall as usize;
+            
+            // Left sweat drop
+            if row == sweat_row && col == 2 { return 'w'; } // inside drop
+            if row == sweat_row && (col == 1 || col == 3) { return 's'; } // outline
+            
+            // Right sweat drop (offset)
+            let right_fall = ((abs_tick / 2) + 3) % 6;
+            let right_sweat_row = 5 + right_fall as usize;
+            if row == right_sweat_row && col == 22 { return 'w'; }
+            if row == right_sweat_row && (col == 21 || col == 23) { return 's'; }
+        }
+        MascotState::Completed => {
+            // Happy celebration!
+            if (abs_tick / 2) % 2 == 0 {
+                // Tongue wags
+                if c == 'T' && col == 12 { return 'M'; }
+                if c == 'M' && col == 14 { return 'T'; }
+            }
+            // Sparkles
+            if (abs_tick / 2) % 2 == 0 && row == 2 && col == 1 { return '*'; }
+            if (abs_tick / 2) % 2 != 0 && row == 3 && col == 22 { return '*'; }
+        }
     }
+    c
 }
 
-// ── Frame generators ─────────────────────────────────────────────────
-// Each function returns 2 frames of Domate in that state.
-// Using Unicode block/circle characters + ANSI 24-bit colors.
-
-fn working_frames(frame_idx: usize) -> Vec<Line<'static>> {
-    let leaf = NATURE_GREEN;
-    let body = TOMATO_RED;
-    let cheek = CHEEK_PINK;
-    let eye = SOFT_WHITE;
-
-    if frame_idx == 0 {
-        // Frame 1: Eyes open, focused
-        vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("      🌿      ", Style::default().fg(leaf)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╭──────╮  ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled(" ◉", Style::default().fg(eye)),
-                Span::styled("  ", Style::default().fg(body)),
-                Span::styled("◉ ", Style::default().fg(eye)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled(" ‿‿ ", Style::default().fg(eye)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╰──────╯  ", Style::default().fg(body)),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("   ◄ FOCUS ►  ", Style::default().fg(WARM_YELLOW)),
-            ]),
-            Line::from(""),
-        ]
-    } else {
-        // Frame 2: Eyes blinking (half-closed)
-        vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("      🌿      ", Style::default().fg(leaf)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╭──────╮  ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled(" ─", Style::default().fg(eye)),
-                Span::styled("  ", Style::default().fg(body)),
-                Span::styled("─ ", Style::default().fg(eye)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled(" ‿‿ ", Style::default().fg(eye)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╰──────╯  ", Style::default().fg(body)),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("   ◄ FOCUS ►  ", Style::default().fg(WARM_YELLOW)),
-            ]),
-            Line::from(""),
-        ]
-    }
-}
-
-fn short_break_frames(frame_idx: usize) -> Vec<Line<'static>> {
-    let leaf = NATURE_GREEN;
-    let body = TOMATO_RED;
-    let cheek = CHEEK_PINK;
-    let eye = SOFT_WHITE;
-
-    if frame_idx == 0 {
-        vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("      🌿    z ", Style::default().fg(leaf)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╭──────╮ z", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled(" ◡", Style::default().fg(eye)),
-                Span::styled("  ", Style::default().fg(body)),
-                Span::styled("◡ ", Style::default().fg(eye)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled(" ‿‿ ", Style::default().fg(eye)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╰──────╯  ", Style::default().fg(body)),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("    ☕ break   ", Style::default().fg(NATURE_GREEN)),
-            ]),
-            Line::from(""),
-        ]
-    } else {
-        vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("      🌿  z   ", Style::default().fg(leaf)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╭──────╮z ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled(" ◡", Style::default().fg(eye)),
-                Span::styled("  ", Style::default().fg(body)),
-                Span::styled("◡ ", Style::default().fg(eye)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled(" ω  ", Style::default().fg(eye)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╰──────╯  ", Style::default().fg(body)),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("    ☕ break   ", Style::default().fg(NATURE_GREEN)),
-            ]),
-            Line::from(""),
-        ]
-    }
-}
-
-fn long_break_frames(frame_idx: usize) -> Vec<Line<'static>> {
-    let leaf = NATURE_GREEN;
-    let body = TOMATO_RED;
-    let cheek = CHEEK_PINK;
-    let eye = SOFT_WHITE;
-    let purple = Color::Rgb(142, 68, 173);
-
-    if frame_idx == 0 {
-        vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("      🌿      ", Style::default().fg(leaf)),
-            ]),
-            Line::from(vec![
-                Span::styled("   ╭────────╮ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("  │", Style::default().fg(body)),
-                Span::styled("  ◡", Style::default().fg(eye)),
-                Span::styled("    ", Style::default().fg(body)),
-                Span::styled("◡  ", Style::default().fg(eye)),
-                Span::styled("│", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("  │", Style::default().fg(body)),
-                Span::styled(" ●", Style::default().fg(cheek)),
-                Span::styled(" ‿‿‿ ", Style::default().fg(eye)),
-                Span::styled("● ", Style::default().fg(cheek)),
-                Span::styled("│", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   ╰────────╯ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("    \\(^_^)/   ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   🌴 relax 🌴 ", Style::default().fg(purple)),
-            ]),
-            Line::from(""),
-        ]
-    } else {
-        vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("      🌿      ", Style::default().fg(leaf)),
-            ]),
-            Line::from(vec![
-                Span::styled("   ╭────────╮ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("  │", Style::default().fg(body)),
-                Span::styled("  ◠", Style::default().fg(eye)),
-                Span::styled("    ", Style::default().fg(body)),
-                Span::styled("◠  ", Style::default().fg(eye)),
-                Span::styled("│", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("  │", Style::default().fg(body)),
-                Span::styled(" ●", Style::default().fg(cheek)),
-                Span::styled(" ‿‿‿ ", Style::default().fg(eye)),
-                Span::styled("● ", Style::default().fg(cheek)),
-                Span::styled("│", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   ╰────────╯ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("    /(^_^)\\   ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   🌴 relax 🌴 ", Style::default().fg(purple)),
-            ]),
-            Line::from(""),
-        ]
-    }
-}
-
-fn last_minute_frames(frame_idx: usize) -> Vec<Line<'static>> {
-    let leaf = NATURE_GREEN;
-    let body = TOMATO_RED;
-    let cheek = CHEEK_PINK;
-    let eye = SOFT_WHITE;
-
-    if frame_idx == 0 {
-        vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("    💦🌿      ", Style::default().fg(leaf)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╭──────╮  ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled(" ⊙", Style::default().fg(eye)),
-                Span::styled("  ", Style::default().fg(body)),
-                Span::styled("⊙ ", Style::default().fg(eye)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled(" △△ ", Style::default().fg(eye)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╰──────╯  ", Style::default().fg(body)),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("  ⚡ HURRY! ⚡ ", Style::default().fg(WARM_YELLOW)),
-            ]),
-            Line::from(""),
-        ]
-    } else {
-        vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("      🌿💦    ", Style::default().fg(leaf)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╭──────╮  ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled(" ◎", Style::default().fg(eye)),
-                Span::styled("  ", Style::default().fg(body)),
-                Span::styled("◎ ", Style::default().fg(eye)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled(" ▽▽ ", Style::default().fg(eye)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╰──────╯  ", Style::default().fg(body)),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("  ⚡ HURRY! ⚡ ", Style::default().fg(WARM_YELLOW)),
-            ]),
-            Line::from(""),
-        ]
-    }
-}
-
-fn completed_frames(frame_idx: usize) -> Vec<Line<'static>> {
-    let leaf = NATURE_GREEN;
-    let body = TOMATO_RED;
-    let cheek = CHEEK_PINK;
-    let eye = SOFT_WHITE;
-
-    if frame_idx == 0 {
-        vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("   ✨ 🌿 ✨   ", Style::default().fg(leaf)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╭──────╮  ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled(" ★", Style::default().fg(WARM_YELLOW)),
-                Span::styled("  ", Style::default().fg(body)),
-                Span::styled("★ ", Style::default().fg(WARM_YELLOW)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled(" ▽▽ ", Style::default().fg(eye)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╰──────╯  ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("      \\○/     ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("  ✨ DONE! ✨  ", Style::default().fg(WARM_YELLOW)),
-            ]),
-            Line::from(""),
-        ]
-    } else {
-        vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("  ⭐  🌿  ⭐  ", Style::default().fg(leaf)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╭──────╮  ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled(" ◉", Style::default().fg(WARM_YELLOW)),
-                Span::styled("  ", Style::default().fg(body)),
-                Span::styled("◉ ", Style::default().fg(WARM_YELLOW)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("   │", Style::default().fg(body)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled(" ▿▿ ", Style::default().fg(eye)),
-                Span::styled("●", Style::default().fg(cheek)),
-                Span::styled("│ ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ╰──────╯  ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("      /○\\     ", Style::default().fg(body)),
-            ]),
-            Line::from(vec![
-                Span::styled("  🎉 DONE! 🎉 ", Style::default().fg(WARM_YELLOW)),
-            ]),
-            Line::from(""),
-        ]
+fn char_to_color(c: char) -> Option<Color> {
+    match c {
+        'O' => Some(OUTLINE),
+        'r' => Some(TOMATO_BODY),
+        'd' => Some(TOMATO_SHADOW),
+        'E' => Some(OUTLINE),          // Eyebrows use the outline color
+        'G' => Some(GLASSES_RIM),
+        'g' => Some(GLASSES_LENS),
+        'W' => Some(REFLECTION),
+        'S' => Some(STEM),
+        'L' => Some(LEAF),
+        'M' => Some(MOUTH_DARK),
+        'T' => Some(TONGUE),
+        _ => None,
     }
 }

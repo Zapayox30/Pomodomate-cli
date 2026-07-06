@@ -88,9 +88,13 @@ impl Timer {
         }
     }
 
+    /// Advance the animation tick counter by one.
+    pub fn animation_tick(&mut self) {
+        self.tick = self.tick.wrapping_add(1);
+    }
+
     /// Advance the timer by one second. Returns `true` if the phase just completed.
     pub fn tick(&mut self) -> bool {
-        self.tick = self.tick.wrapping_add(1);
 
         if self.status != TimerStatus::Running {
             return false;

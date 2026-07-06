@@ -51,8 +51,9 @@ impl App {
 
     /// Main application loop — runs until the user quits.
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
-        let tick_rate = Duration::from_secs(1);
+        let tick_rate = Duration::from_millis(125); // 8 FPS
         let mut last_tick = Instant::now();
+        let mut last_timer_update = Instant::now();
 
         while !self.should_quit {
             // Draw
@@ -70,15 +71,20 @@ impl App {
                 }
             }
 
-            // Timer tick every second
             if last_tick.elapsed() >= tick_rate {
+                self.timer.animation_tick();
+                last_tick = Instant::now();
+            }
+
+            // Timer tick every second
+            if last_timer_update.elapsed() >= Duration::from_secs(1) {
                 let phase_completed = self.timer.tick();
 
                 if phase_completed {
                     self.on_phase_complete()?;
                 }
 
-                last_tick = Instant::now();
+                last_timer_update += Duration::from_secs(1);
             }
         }
 
