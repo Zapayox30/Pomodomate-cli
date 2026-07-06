@@ -53,20 +53,22 @@ yay -S pomodomate-cli
 git clone https://github.com/pomodomate/pomodomate-cli.git
 cd pomodomate-cli
 cargo build --release
-./target/release/pomodomate-cli
+./target/release/pomodomate
 ```
+
+> The package is named `pomodomate-cli`, but the installed command is simply `pomodomate`.
 
 ## 🚀 Usage
 
 ```bash
 # Start a Pomodoro session
-pomodomate-cli
+pomodomate
 
 # Show version
-pomodomate-cli --version
+pomodomate --version
 
 # Use custom config
-pomodomate-cli --config /path/to/config.toml
+pomodomate --config /path/to/config.toml
 ```
 
 ## ⌨️ Keybindings

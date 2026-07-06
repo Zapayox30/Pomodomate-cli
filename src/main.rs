@@ -15,7 +15,7 @@ use config::Config;
 /// 🍅 Pomodomate CLI — A beautiful Pomodoro timer for the terminal
 #[derive(Parser, Debug)]
 #[command(
-    name = "pomodomate-cli",
+    name = "pomodomate",
     version,
     about = "🍅 A beautiful Pomodoro timer for the terminal — featuring Domate, your animated tomato companion",
     long_about = None
@@ -56,8 +56,10 @@ fn main() -> Result<()> {
     // Propagate any error from the app
     result.context("Pomodomate encountered an error")?;
 
-    println!("🍅 Thanks for using Pomodomate! You completed {} pomodoros. See you next time!", 
-             app.timer.pomodoros_completed);
+    println!(
+        "🍅 Thanks for using Pomodomate! You completed {} pomodoros. See you next time!",
+        app.timer.pomodoros_completed
+    );
 
     Ok(())
 }

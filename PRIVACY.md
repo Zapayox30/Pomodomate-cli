@@ -25,7 +25,7 @@ All data is stored **locally** in standard XDG directories:
 | Data | Location | Format |
 |------|----------|--------|
 | Configuration | `~/.config/pomodomate/config.toml` | TOML |
-| Session history | `~/.local/share/pomodomate/sessions.json` | JSON |
+| Session history | `~/.local/share/pomodomate/sessions.jsonl` | JSON Lines |
 
 You own these files. You can read, edit, backup, or delete them at any time.
 

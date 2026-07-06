@@ -11,6 +11,11 @@ keywords = ["pomodoro", "timer", "tui", "productivity", "cli"]
 categories = ["command-line-utilities"]
 readme = "README.md"
 
+# The package is pomodomate-cli, but the installed command is `pomodomate`
+[[bin]]
+name = "pomodomate"
+path = "src/main.rs"
+
 [dependencies]
 # TUI Framework
 ratatui = "0.30"
