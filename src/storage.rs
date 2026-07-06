@@ -49,13 +49,19 @@ impl Session {
 }
 
 /// Manages local session history on disk.
+///
+/// History is stored as JSON Lines (one session per line) so saving is an
+/// append instead of a full rewrite, and a partial write can only affect the
+/// last line rather than corrupting the whole file.
 pub struct Storage {
-    /// Path to the sessions JSON file.
+    /// Path to the append-only JSON Lines history file.
     data_path: PathBuf,
+    /// Legacy JSON-array file (old format), migrated on first access.
+    legacy_path: PathBuf,
 }
 
 impl Storage {
-    /// Create a new Storage pointing to `~/.local/share/pomodomate/sessions.json`.
+    /// Create a new Storage pointing to `~/.local/share/pomodomate/sessions.jsonl`.
     pub fn new() -> Result<Self> {
         let data_dir = dirs::data_dir()
             .context("Could not determine data directory")?
@@ -63,26 +69,40 @@ impl Storage {
         fs::create_dir_all(&data_dir)
             .with_context(|| format!("Failed to create data dir {}", data_dir.display()))?;
 
-        Ok(Self {
-            data_path: data_dir.join("sessions.json"),
-        })
+        Ok(Self::at_dir(data_dir))
     }
 
-    /// Save a completed session to the history file.
-    pub fn save_session(&self, session: &Session) -> Result<()> {
-        let mut sessions = self.load_sessions().unwrap_or_default();
-        sessions.push(session.clone());
+    /// Create a Storage rooted at a specific directory (must already exist).
+    pub fn at_dir(dir: PathBuf) -> Self {
+        Self {
+            data_path: dir.join("sessions.jsonl"),
+            legacy_path: dir.join("sessions.json"),
+        }
+    }
 
-        let json = serde_json::to_string_pretty(&sessions)
-            .context("Failed to serialize sessions")?;
-        fs::write(&self.data_path, json)
-            .with_context(|| format!("Failed to write sessions to {}", self.data_path.display()))?;
+    /// Append a session to the history file.
+    pub fn save_session(&self, session: &Session) -> Result<()> {
+        self.migrate_legacy()?;
+
+        let mut line = serde_json::to_string(session).context("Failed to serialize session")?;
+        line.push('\n');
+
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.data_path)
+            .with_context(|| format!("Failed to open {}", self.data_path.display()))?;
+        use std::io::Write;
+        file.write_all(line.as_bytes())
+            .with_context(|| format!("Failed to write to {}", self.data_path.display()))?;
 
         Ok(())
     }
 
     /// Load all sessions from disk.
     pub fn load_sessions(&self) -> Result<Vec<Session>> {
+        self.migrate_legacy()?;
+
         if !self.data_path.exists() {
             return Ok(Vec::new());
         }
@@ -90,14 +110,52 @@ impl Storage {
         let content = fs::read_to_string(&self.data_path)
             .with_context(|| format!("Failed to read {}", self.data_path.display()))?;
 
-        if content.trim().is_empty() {
-            return Ok(Vec::new());
+        let mut sessions = Vec::new();
+        for line in content.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let session: Session = serde_json::from_str(line)
+                .with_context(|| format!("Failed to parse a session in {}", self.data_path.display()))?;
+            sessions.push(session);
         }
 
-        let sessions: Vec<Session> = serde_json::from_str(&content)
-            .with_context(|| format!("Failed to parse {}", self.data_path.display()))?;
-
         Ok(sessions)
+    }
+
+    /// One-time migration from the old JSON-array format to JSON Lines.
+    /// The old file is kept as `sessions.json.bak` after a successful migration.
+    fn migrate_legacy(&self) -> Result<()> {
+        if !self.legacy_path.exists() {
+            return Ok(());
+        }
+
+        let content = fs::read_to_string(&self.legacy_path)
+            .with_context(|| format!("Failed to read {}", self.legacy_path.display()))?;
+
+        let mut lines = String::new();
+        if !content.trim().is_empty() {
+            let legacy: Vec<Session> = serde_json::from_str(&content)
+                .with_context(|| format!("Failed to parse {}", self.legacy_path.display()))?;
+            for session in &legacy {
+                lines.push_str(&serde_json::to_string(session).context("Failed to serialize session")?);
+                lines.push('\n');
+            }
+        }
+
+        // Legacy sessions are older than anything already appended to the
+        // JSONL file, so they go first.
+        if self.data_path.exists() {
+            lines.push_str(&fs::read_to_string(&self.data_path)?);
+        }
+        fs::write(&self.data_path, lines)
+            .with_context(|| format!("Failed to write {}", self.data_path.display()))?;
+
+        let backup = self.legacy_path.with_extension("json.bak");
+        fs::rename(&self.legacy_path, &backup)
+            .with_context(|| format!("Failed to back up {}", self.legacy_path.display()))?;
+
+        Ok(())
     }
 
     /// Get sessions within a date range (for heatmap).
@@ -139,5 +197,84 @@ impl Storage {
         result.reverse();
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Fresh Storage rooted in a unique temp directory.
+    fn temp_storage() -> (Storage, PathBuf) {
+        let dir = std::env::temp_dir()
+            .join("pomodomate-test")
+            .join(Uuid::new_v4().to_string());
+        fs::create_dir_all(&dir).unwrap();
+        (Storage::at_dir(dir.clone()), dir)
+    }
+
+    fn session(phase: &str, completed: bool) -> Session {
+        Session::new(Utc::now(), 25, phase, completed)
+    }
+
+    #[test]
+    fn load_returns_empty_when_no_history_exists() {
+        let (storage, _dir) = temp_storage();
+        assert!(storage.load_sessions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn save_and_load_roundtrip() {
+        let (storage, _dir) = temp_storage();
+        storage.save_session(&session("work", true)).unwrap();
+        storage.save_session(&session("short_break", false)).unwrap();
+
+        let loaded = storage.load_sessions().unwrap();
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].phase, "work");
+        assert!(loaded[0].completed);
+        assert_eq!(loaded[1].phase, "short_break");
+        assert!(!loaded[1].completed);
+    }
+
+    #[test]
+    fn migrates_legacy_sessions_json() {
+        let dir = std::env::temp_dir()
+            .join("pomodomate-test")
+            .join(Uuid::new_v4().to_string());
+        fs::create_dir_all(&dir).unwrap();
+
+        // Write a legacy JSON-array history file
+        let legacy = vec![session("work", true), session("work", true)];
+        fs::write(
+            dir.join("sessions.json"),
+            serde_json::to_string_pretty(&legacy).unwrap(),
+        )
+        .unwrap();
+
+        let storage = Storage::at_dir(dir.clone());
+        let loaded = storage.load_sessions().unwrap();
+        assert_eq!(loaded.len(), 2, "legacy sessions must survive migration");
+
+        // Appending after migration keeps everything
+        storage.save_session(&session("work", false)).unwrap();
+        assert_eq!(storage.load_sessions().unwrap().len(), 3);
+
+        // The legacy file is no longer the source of truth
+        assert!(!dir.join("sessions.json").exists());
+    }
+
+    #[test]
+    fn daily_counts_only_counts_completed_work() {
+        let (storage, _dir) = temp_storage();
+        storage.save_session(&session("work", true)).unwrap();
+        storage.save_session(&session("work", true)).unwrap();
+        storage.save_session(&session("work", false)).unwrap(); // skipped
+        storage.save_session(&session("short_break", true)).unwrap(); // break
+
+        let counts = storage.daily_counts(1).unwrap();
+        let today = Utc::now().date_naive();
+        let today_count = counts.iter().find(|(d, _)| *d == today).unwrap().1;
+        assert_eq!(today_count, 2);
     }
 }
