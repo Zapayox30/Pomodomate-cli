@@ -46,43 +46,33 @@ pub fn draw_heatmap(frame: &mut Frame, app: &App, area: Rect) {
     )));
     lines.push(Line::from(""));
 
-    // Month labels row
-    let months = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    let mut month_spans: Vec<Span<'static>> = vec![Span::raw("     ")]; // Day label offset
-    
-    // Simplified month labels (evenly spaced)
-    for month in &months {
-        month_spans.push(Span::styled(
-            format!("{:<6}", month),
-            Style::default().fg(Color::DarkGray),
-        ));
-    }
-    lines.push(Line::from(month_spans));
+    // Build the grid: columns are Mon-Sun weeks, aligned to real weekdays.
+    // Show at most the latest 52 weeks so it fits a normal terminal.
+    let full_grid = build_grid(&daily_counts);
+    let skip = full_grid.len().saturating_sub(52);
+    let grid = &full_grid[skip..];
+
+    // Month labels: mark the column where a new month starts.
+    lines.push(Line::from(vec![
+        Span::raw("    "), // Day label offset
+        Span::styled(month_label_row(grid), Style::default().fg(Color::DarkGray)),
+    ]));
 
     // Day labels
     let day_labels = ["Mon", "   ", "Wed", "   ", "Fri", "   ", "Sun"];
-
-    // Build the heatmap grid (7 rows × 52 columns)
-    // Each row is a day of the week, each column is a week
-    let total_days = daily_counts.len();
-    let total_weeks = total_days.div_ceil(7);
 
     for (row_idx, day_label) in day_labels.iter().enumerate() {
         let mut row_spans: Vec<Span<'static>> = vec![
             Span::styled(format!("{} ", day_label), Style::default().fg(Color::DarkGray)),
         ];
 
-        for week in 0..total_weeks.min(52) {
-            let day_index = week * 7 + row_idx;
-            if day_index < total_days {
-                let (_date, count) = daily_counts[day_index];
-                let color = intensity_color(count);
-                row_spans.push(Span::styled("█ ", Style::default().fg(color)));
-            } else {
-                row_spans.push(Span::styled("  ", Style::default()));
+        for week in grid {
+            match week[row_idx] {
+                Some((_date, count)) => {
+                    let color = intensity_color(count);
+                    row_spans.push(Span::styled("█ ", Style::default().fg(color)));
+                }
+                None => row_spans.push(Span::styled("  ", Style::default())),
             }
         }
 
@@ -138,6 +128,70 @@ pub fn draw_heatmap(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(heatmap, area);
 }
 
+type Cell = Option<(chrono::NaiveDate, u32)>;
+
+/// Arrange daily counts (oldest first) into GitHub-style week columns,
+/// where each column is a Monday-to-Sunday week and each date sits in the
+/// row of its actual weekday.
+fn build_grid(daily_counts: &[(chrono::NaiveDate, u32)]) -> Vec<[Cell; 7]> {
+    use chrono::Datelike;
+
+    let Some(&(first, _)) = daily_counts.first() else {
+        return Vec::new();
+    };
+
+    // Monday of the week containing the first date anchors column 0.
+    let anchor = first - chrono::Duration::days(first.weekday().num_days_from_monday() as i64);
+
+    let mut grid: Vec<[Cell; 7]> = Vec::new();
+    for &(date, count) in daily_counts {
+        let col = ((date - anchor).num_days() / 7) as usize;
+        let row = date.weekday().num_days_from_monday() as usize;
+        if grid.len() <= col {
+            grid.resize(col + 1, [None; 7]);
+        }
+        grid[col][row] = Some((date, count));
+    }
+
+    grid
+}
+
+/// Build the month label row: each week column is 2 chars wide, and a month
+/// abbreviation is written at the first column belonging to that month.
+fn month_label_row(grid: &[[Cell; 7]]) -> String {
+    use chrono::Datelike;
+
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+
+    let mut row = vec![' '; grid.len() * 2];
+    let mut prev_month = 0u32;
+    let mut next_free = 0usize;
+
+    for (col, week) in grid.iter().enumerate() {
+        let Some((date, _)) = week.iter().flatten().next() else {
+            continue;
+        };
+        if date.month() != prev_month {
+            prev_month = date.month();
+            let pos = col * 2;
+            // Leave a gap between labels so they never run together
+            if pos >= next_free {
+                for (i, ch) in MONTHS[date.month0() as usize].chars().enumerate() {
+                    if pos + i < row.len() {
+                        row[pos + i] = ch;
+                    }
+                }
+                next_free = pos + 4;
+            }
+        }
+    }
+
+    row.into_iter().collect()
+}
+
 /// Calculate the longest consecutive-day streak of completed pomodoros.
 fn calculate_streak(daily_counts: &[(chrono::NaiveDate, u32)]) -> u32 {
     let mut max_streak = 0u32;
@@ -153,4 +207,47 @@ fn calculate_streak(daily_counts: &[(chrono::NaiveDate, u32)]) -> u32 {
     }
 
     max_streak
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+
+    fn d(y: i32, m: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, day).unwrap()
+    }
+
+    #[test]
+    fn grid_aligns_dates_to_real_weekdays() {
+        // 2025-01-01 was a Wednesday; the range Wed Jan 1 .. Tue Jan 7
+        // must span two Mon-Sun columns with the right slots empty.
+        let days: Vec<_> = (1..=7).map(|i| (d(2025, 1, i), i)).collect();
+        let grid = build_grid(&days);
+
+        assert_eq!(grid.len(), 2);
+        assert!(grid[0][0].is_none(), "Mon of week 1 predates the range");
+        assert!(grid[0][1].is_none(), "Tue of week 1 predates the range");
+        assert_eq!(grid[0][2], Some((d(2025, 1, 1), 1)), "Jan 1 lands on Wednesday");
+        assert_eq!(grid[0][6], Some((d(2025, 1, 5), 5)), "Jan 5 lands on Sunday");
+        assert_eq!(grid[1][0], Some((d(2025, 1, 6), 6)), "Jan 6 starts the next week");
+        assert_eq!(grid[1][1], Some((d(2025, 1, 7), 7)));
+        assert!(grid[1][2].is_none(), "rest of week 2 is beyond the range");
+    }
+
+    #[test]
+    fn streak_counts_longest_consecutive_run() {
+        let counts: Vec<(NaiveDate, u32)> = [1, 0, 2, 1, 3, 0, 1]
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (d(2025, 1, i as u32 + 1), *c))
+            .collect();
+        assert_eq!(calculate_streak(&counts), 3);
+    }
+
+    #[test]
+    fn streak_is_zero_without_activity() {
+        let counts = vec![(d(2025, 1, 1), 0), (d(2025, 1, 2), 0)];
+        assert_eq!(calculate_streak(&counts), 0);
+    }
 }
