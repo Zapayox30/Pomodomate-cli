@@ -126,17 +126,25 @@ impl Timer {
         self.status = TimerStatus::Idle;
     }
 
-    /// Skip ahead to the next phase.
+    /// Skip ahead to the next phase without crediting the current one.
     pub fn skip(&mut self) {
-        self.advance_to_next_phase();
+        self.transition(false);
     }
 
-    /// Transition to the next phase in the Pomodoro cycle.
+    /// Transition to the next phase after the current one completed naturally.
     pub fn advance_to_next_phase(&mut self) {
+        self.transition(true);
+    }
+
+    /// Move to the next phase. Only a naturally completed work phase counts
+    /// toward `pomodoros_completed` and the long-break cycle.
+    fn transition(&mut self, work_completed: bool) {
         match self.phase {
             TimerPhase::Work => {
-                self.pomodoros_completed += 1;
-                self.cycle_position += 1;
+                if work_completed {
+                    self.pomodoros_completed += 1;
+                    self.cycle_position += 1;
+                }
 
                 if self.cycle_position >= self.long_break_interval {
                     // Time for a long break
@@ -192,5 +200,144 @@ impl Timer {
     /// Whether we're in the last 60 seconds (for "last minute" mascot state).
     pub fn is_last_minute(&self) -> bool {
         self.status == TimerStatus::Running && self.remaining <= Duration::from_secs(60)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+
+    fn timer() -> Timer {
+        Timer::new(&Config::default())
+    }
+
+    /// Run the current phase down to zero as if the full duration elapsed.
+    fn complete_phase(t: &mut Timer) {
+        t.status = TimerStatus::Running;
+        t.remaining = Duration::from_secs(1);
+        assert!(t.tick(), "phase should complete");
+    }
+
+    #[test]
+    fn starts_idle_with_full_work_duration() {
+        let t = timer();
+        assert_eq!(t.phase, TimerPhase::Work);
+        assert_eq!(t.status, TimerStatus::Idle);
+        assert_eq!(t.remaining, Duration::from_secs(25 * 60));
+        assert_eq!(t.pomodoros_completed, 0);
+    }
+
+    #[test]
+    fn tick_only_counts_down_while_running() {
+        let mut t = timer();
+        assert!(!t.tick());
+        assert_eq!(t.remaining, Duration::from_secs(25 * 60), "idle timer must not advance");
+
+        t.toggle_pause(); // Idle -> Running
+        assert!(!t.tick());
+        assert_eq!(t.remaining, Duration::from_secs(25 * 60 - 1));
+
+        t.toggle_pause(); // Running -> Paused
+        assert!(!t.tick());
+        assert_eq!(t.remaining, Duration::from_secs(25 * 60 - 1), "paused timer must not advance");
+    }
+
+    #[test]
+    fn completing_work_counts_pomodoro_and_starts_short_break() {
+        let mut t = timer();
+        complete_phase(&mut t);
+        assert_eq!(t.status, TimerStatus::Completed);
+
+        t.advance_to_next_phase();
+        assert_eq!(t.pomodoros_completed, 1);
+        assert_eq!(t.phase, TimerPhase::ShortBreak);
+        assert_eq!(t.remaining, Duration::from_secs(5 * 60));
+        // auto_start_breaks defaults to true
+        assert_eq!(t.status, TimerStatus::Running);
+    }
+
+    #[test]
+    fn long_break_after_completing_interval_works() {
+        let mut t = timer();
+        for i in 1..=4 {
+            assert_eq!(t.phase, TimerPhase::Work);
+            complete_phase(&mut t);
+            t.advance_to_next_phase();
+            assert_eq!(t.pomodoros_completed, i);
+            if i < 4 {
+                assert_eq!(t.phase, TimerPhase::ShortBreak);
+                complete_phase(&mut t);
+                t.advance_to_next_phase();
+            }
+        }
+        assert_eq!(t.phase, TimerPhase::LongBreak);
+        assert_eq!(t.remaining, Duration::from_secs(15 * 60));
+        assert_eq!(t.cycle_position, 0, "cycle resets after long break is scheduled");
+    }
+
+    #[test]
+    fn skipping_work_does_not_count_pomodoro() {
+        let mut t = timer();
+        t.skip();
+        assert_eq!(t.phase, TimerPhase::ShortBreak);
+        assert_eq!(t.pomodoros_completed, 0, "a skipped work session is not a completed pomodoro");
+    }
+
+    #[test]
+    fn skipping_work_does_not_advance_cycle_toward_long_break() {
+        let mut t = timer();
+        for _ in 0..4 {
+            t.skip(); // skip work
+            t.skip(); // skip break
+        }
+        // Four skipped "cycles" later we must still be headed to a short break
+        t.skip();
+        assert_eq!(t.phase, TimerPhase::ShortBreak, "skips must not earn a long break");
+        assert_eq!(t.pomodoros_completed, 0);
+    }
+
+    #[test]
+    fn break_returns_to_work_idle_by_default() {
+        let mut t = timer();
+        complete_phase(&mut t);
+        t.advance_to_next_phase(); // -> ShortBreak
+        complete_phase(&mut t);
+        t.advance_to_next_phase(); // -> Work
+        assert_eq!(t.phase, TimerPhase::Work);
+        // auto_start_pomodoros defaults to false
+        assert_eq!(t.status, TimerStatus::Idle);
+    }
+
+    #[test]
+    fn reset_restores_full_duration_and_idle() {
+        let mut t = timer();
+        t.toggle_pause();
+        t.tick();
+        t.reset();
+        assert_eq!(t.remaining, Duration::from_secs(25 * 60));
+        assert_eq!(t.status, TimerStatus::Idle);
+    }
+
+    #[test]
+    fn progress_goes_from_zero_to_one() {
+        let mut t = timer();
+        assert_eq!(t.progress(), 0.0);
+        t.status = TimerStatus::Running;
+        t.remaining = Duration::from_secs(25 * 60 / 2);
+        assert!((t.progress() - 0.5).abs() < 1e-9);
+        t.remaining = Duration::ZERO;
+        assert_eq!(t.progress(), 1.0);
+    }
+
+    #[test]
+    fn last_minute_only_while_running() {
+        let mut t = timer();
+        t.remaining = Duration::from_secs(59);
+        assert!(!t.is_last_minute(), "idle timer is not in last-minute state");
+        t.status = TimerStatus::Running;
+        assert!(t.is_last_minute());
+        t.remaining = Duration::from_secs(61);
+        assert!(!t.is_last_minute());
     }
 }
