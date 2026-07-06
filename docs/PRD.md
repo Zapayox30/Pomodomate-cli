@@ -158,4 +158,4 @@ Compatibilidad
 Windows (Futuro)
 Posible en v2.0+ dado que Rust es cross-platform. Requiere adaptaciones en notificaciones (WinRT) y rutas de configuracion. No forma parte del MVP.
 
-Pomodomate.com  -  pomodomate-cli PRD v0.1  -  2025  -  Confidencial
+Pomodomate.com  -  pomodomate-cli PRD v0.1  -  2025

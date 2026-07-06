@@ -35,13 +35,23 @@
 
 ## 📦 Installation
 
+### Prebuilt Binaries (Linux)
+
+Download the latest binary for x86_64 or aarch64 from the
+[Releases page](https://github.com/Zapayox30/Pomodomate-cli/releases), then:
+
+```bash
+tar xzf pomodomate-*.tar.gz
+sudo install -m 755 pomodomate /usr/local/bin/
+```
+
 ### Cargo (Universal)
 
 ```bash
 cargo install pomodomate-cli
 ```
 
-### AUR (Arch Linux)
+### AUR (Arch Linux) — coming soon
 
 ```bash
 yay -S pomodomate-cli
@@ -50,8 +60,8 @@ yay -S pomodomate-cli
 ### From Source
 
 ```bash
-git clone https://github.com/pomodomate/pomodomate-cli.git
-cd pomodomate-cli
+git clone https://github.com/Zapayox30/Pomodomate-cli.git
+cd Pomodomate-cli
 cargo build --release
 ./target/release/pomodomate
 ```
