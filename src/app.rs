@@ -29,6 +29,8 @@ pub struct App {
     pub current_view: View,
     /// Whether the app should exit
     pub should_quit: bool,
+    /// True if no work session has been completed yet today (sunrise mascot)
+    pub first_session_today: bool,
     /// Timestamp when the current phase started (for session logging)
     phase_started_at: Option<chrono::DateTime<Utc>>,
 }
@@ -39,12 +41,18 @@ impl App {
         let timer = Timer::new(&config);
         let storage = Storage::new()?;
 
+        let first_session_today = storage
+            .daily_counts(1)
+            .map(|counts| counts.iter().all(|(_, n)| *n == 0))
+            .unwrap_or(true);
+
         Ok(Self {
             timer,
             config,
             storage,
             current_view: View::Timer,
             should_quit: false,
+            first_session_today,
             phase_started_at: None,
         })
     }
@@ -111,7 +119,10 @@ impl App {
                     self.save_session(started, false)?;
                 }
                 self.timer.skip();
-                self.phase_started_at = Some(Utc::now());
+                // Only start the clock on the new phase if it actually started
+                if self.timer.status == TimerStatus::Running {
+                    self.phase_started_at = Some(Utc::now());
+                }
             }
             KeyCode::Char('h') => {
                 self.current_view = match self.current_view {
@@ -134,9 +145,19 @@ impl App {
             self.save_session(started, true)?;
         }
 
+        // Mark work completed for today (disables the sunrise animation)
+        if self.timer.phase == TimerPhase::Work {
+            self.first_session_today = false;
+        }
+
         // Send desktop notification
         if self.config.notifications {
             self.send_notification();
+        }
+
+        // Audible cue, independent of desktop notifications
+        if self.config.sound {
+            Self::ring_bell();
         }
 
         // Advance to next phase
@@ -189,12 +210,27 @@ impl App {
             ),
         };
 
-        // Fire-and-forget notification — don't crash if it fails
-        let _ = notify_rust::Notification::new()
+        let mut notification = notify_rust::Notification::new();
+        notification
             .summary(summary)
             .body(&body)
             .icon("pomodomate")
-            .timeout(notify_rust::Timeout::Milliseconds(5000))
-            .show();
+            .timeout(notify_rust::Timeout::Milliseconds(5000));
+
+        if self.config.sound {
+            // XDG sound theme name; honored by notification daemons with sound support
+            notification.sound_name("complete");
+        }
+
+        // Fire-and-forget notification — don't crash if it fails
+        let _ = notification.show();
+    }
+
+    /// Ring the terminal bell (BEL). Works even when notifications are off.
+    fn ring_bell() {
+        use std::io::Write;
+        let mut stdout = std::io::stdout();
+        let _ = stdout.write_all(b"\x07");
+        let _ = stdout.flush();
     }
 }

@@ -13,6 +13,10 @@ use crate::ui::DARK_BASE;
 /// Visual states for the Domate mascot animation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MascotState {
+    /// Neutral waiting state (timer idle or paused)
+    Idle,
+    /// Welcome animation before the first work session of the day
+    Sunrise,
     Working,
     ShortBreak,
     LongBreak,
@@ -24,6 +28,16 @@ impl MascotState {
     pub fn from_timer(app: &App) -> Self {
         if app.timer.status == TimerStatus::Completed {
             return MascotState::Completed;
+        }
+        if matches!(app.timer.status, TimerStatus::Idle | TimerStatus::Paused) {
+            let awaiting_first_work = app.timer.phase == TimerPhase::Work
+                && app.timer.pomodoros_completed == 0
+                && app.first_session_today;
+            return if awaiting_first_work {
+                MascotState::Sunrise
+            } else {
+                MascotState::Idle
+            };
         }
         if app.timer.is_last_minute() {
             return MascotState::LastMinute;
@@ -72,9 +86,11 @@ fn generate_sprite(state: MascotState, tick: u64) -> Vec<Line<'static>> {
     // Vertical bobbing
     let is_bob_up = match state {
         MascotState::Working => bob_frame == 1 || bob_frame == 2,
-        MascotState::ShortBreak | MascotState::LongBreak => (tick / 8) % 2 == 0,
+        MascotState::ShortBreak | MascotState::LongBreak => (tick / 8).is_multiple_of(2),
         MascotState::LastMinute => bob_frame % 2 == 0,
         MascotState::Completed => bob_frame == 0 || bob_frame == 2,
+        // Calm states barely move
+        MascotState::Idle | MascotState::Sunrise => (tick / 16).is_multiple_of(2),
     };
 
     // The pixel grid perfectly matching the uploaded image (Domate with Sunglasses)
@@ -102,13 +118,12 @@ fn generate_sprite(state: MascotState, tick: u64) -> Vec<Line<'static>> {
         lines.push(Line::from(""));
     }
 
-    for row_idx in 0..base_grid.len() {
+    for (row_idx, row) in base_grid.iter().enumerate() {
         let mut spans = Vec::new();
-        let row_chars: Vec<char> = base_grid[row_idx].chars().collect();
+        let row_chars: Vec<char> = row.chars().collect();
 
-        for col_idx in 0..row_chars.len() {
-            let mut c = row_chars[col_idx];
-            c = modify_pixel(c, row_idx, col_idx, state, frame_idx, tick);
+        for (col_idx, &raw) in row_chars.iter().enumerate() {
+            let c = modify_pixel(raw, row_idx, col_idx, state, frame_idx, tick);
 
             if let Some(color) = char_to_color(c) {
                 // Colored "doble espacio" for a perfect square pixel
@@ -182,14 +197,28 @@ fn modify_pixel(c: char, row: usize, col: usize, state: MascotState, _frame: u64
         }
         MascotState::Completed => {
             // Happy celebration!
-            if (abs_tick / 2) % 2 == 0 {
+            if (abs_tick / 2).is_multiple_of(2) {
                 // Tongue wags
                 if c == 'T' && col == 12 { return 'M'; }
                 if c == 'M' && col == 14 { return 'T'; }
             }
             // Sparkles
-            if (abs_tick / 2) % 2 == 0 && row == 2 && col == 1 { return '*'; }
-            if (abs_tick / 2) % 2 != 0 && row == 3 && col == 22 { return '*'; }
+            if (abs_tick / 2).is_multiple_of(2) && row == 2 && col == 1 { return '*'; }
+            if !(abs_tick / 2).is_multiple_of(2) && row == 3 && col == 22 { return '*'; }
+        }
+        MascotState::Idle => {
+            // Neutral waiting face: no eyebrows, small relaxed mouth
+            if c == 'E' { return 'r'; }
+            if c == 'T' { return 'M'; }
+            if c == 'M' && (col <= 10 || col >= 15) { return 'd'; }
+        }
+        MascotState::Sunrise => {
+            // Morning welcome: happy face plus slow sparkles greeting the day
+            let slow = (abs_tick / 8) % 4;
+            if slow == 0 && row == 1 && col == 1 { return '*'; }
+            if slow == 1 && row == 0 && col == 22 { return '*'; }
+            if slow == 2 && row == 2 && col == 23 { return '*'; }
+            if slow == 3 && row == 3 && col == 0 { return '*'; }
         }
     }
     c

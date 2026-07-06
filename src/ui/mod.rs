@@ -169,7 +169,7 @@ fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect) {
         "Pomodoro #{} ─ Cycle {}/{}",
         app.timer.pomodoros_completed + 1,
         app.timer.cycle_position + 1,
-        4 // long_break_interval
+        app.config.long_break_interval
     );
     lines.push(Line::from(Span::styled(
         cycle_text,
@@ -284,7 +284,7 @@ fn render_big_time(mins: &str, secs: &str, color: Color) -> Vec<Line<'static>> {
 fn draw_pomodoro_counter(frame: &mut Frame, app: &App, area: Rect) {
     let completed = app.timer.pomodoros_completed;
     let cycle_pos = app.timer.cycle_position;
-    let interval = 4u32;
+    let interval = app.config.long_break_interval;
 
     let mut spans: Vec<Span<'static>> = vec![
         Span::styled("  ", Style::default()),
