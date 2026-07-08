@@ -1,0 +1,14 @@
+pkgbase = pomodomate-cli
+	pkgdesc = A beautiful Pomodoro timer for the terminal, featuring Domate, your animated tomato companion
+	pkgver = 0.2.0
+	pkgrel = 1
+	url = https://github.com/Zapayox30/Pomodomate-cli
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	makedepends = cargo
+	depends = gcc-libs
+	source = pomodomate-cli-0.2.0.tar.gz::https://github.com/Zapayox30/Pomodomate-cli/archive/refs/tags/v0.2.0.tar.gz
+	sha256sums = ba22bee68c2e51288b19ef0520149096042ded1bad2153594cf248c26caa1871
+
+pkgname = pomodomate-cli

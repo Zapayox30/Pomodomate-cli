@@ -1,0 +1,38 @@
+# Maintainer: Zapayox30 <zapayox30@gmail.com>
+pkgname=pomodomate-cli
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="A beautiful Pomodoro timer for the terminal, featuring Domate, your animated tomato companion"
+arch=('x86_64' 'aarch64')
+url="https://github.com/Zapayox30/Pomodomate-cli"
+license=('MIT')
+depends=('gcc-libs')
+makedepends=('cargo')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('ba22bee68c2e51288b19ef0520149096042ded1bad2153594cf248c26caa1871')
+
+prepare() {
+  cd "Pomodomate-cli-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "Pomodomate-cli-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd "Pomodomate-cli-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen --release
+}
+
+package() {
+  cd "Pomodomate-cli-$pkgver"
+  install -Dm755 "target/release/pomodomate" "$pkgdir/usr/bin/pomodomate"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

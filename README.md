@@ -57,6 +57,8 @@ cargo install pomodomate-cli
 yay -S pomodomate-cli
 ```
 
+The [PKGBUILD](packaging/aur/) is ready and verified with `makepkg`.
+
 ### From Source
 
 ```bash
@@ -91,6 +93,9 @@ pomodomate --config /path/to/config.toml
 
 The interface adapts to your terminal: full mascot view in large windows,
 a compact view in small splits, and a one-line mini mode in tiny panes.
+
+Using Hyprland + Waybar? See [docs/waybar.md](docs/waybar.md) to show your
+pomodoro count and streak in your status bar.
 
 ## ⌨️ Keybindings
 
