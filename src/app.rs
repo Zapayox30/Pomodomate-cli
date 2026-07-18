@@ -244,6 +244,7 @@ impl App {
             self.phase_duration(self.timer.phase),
             Self::phase_name(self.timer.phase),
             completed,
+            self.config.tags.clone(),
         );
         self.storage.save_session(&session)?;
         Ok(())
@@ -255,7 +256,7 @@ impl App {
             phase: Self::phase_name(self.timer.phase).to_string(),
             pomodoros: self.timer.pomodoros_completed,
             duration_minutes: self.phase_duration(self.timer.phase),
-            tags: String::new(),
+            tags: self.config.tags.join(","),
             completed,
         }
     }

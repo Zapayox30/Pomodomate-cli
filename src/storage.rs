@@ -26,6 +26,12 @@ pub struct Session {
     /// Whether this session has been synced to the API (Phase 2)
     #[serde(default)]
     pub synced: bool,
+
+    /// Labels describing what this session was spent on.
+    ///
+    /// Defaults to empty so history written before tags existed still loads.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 impl Session {
@@ -35,6 +41,7 @@ impl Session {
         duration_minutes: u64,
         phase: &str,
         completed: bool,
+        tags: Vec<String>,
     ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
@@ -44,8 +51,29 @@ impl Session {
             phase: phase.to_string(),
             completed,
             synced: false,
+            tags,
         }
     }
+
+    /// Whether this session carries the given tag (case-insensitive).
+    pub fn has_tag(&self, tag: &str) -> bool {
+        self.tags.iter().any(|t| t.eq_ignore_ascii_case(tag))
+    }
+}
+
+/// Normalize a comma-separated tag list into trimmed, non-empty, deduplicated
+/// lowercase tags. Used for both `--tag` flags and config values.
+pub fn parse_tags(raw: &[String]) -> Vec<String> {
+    let mut tags: Vec<String> = Vec::new();
+    for entry in raw {
+        for tag in entry.split(',') {
+            let tag = tag.trim().to_lowercase();
+            if !tag.is_empty() && !tags.contains(&tag) {
+                tags.push(tag);
+            }
+        }
+    }
+    tags
 }
 
 /// Manages local session history on disk.
@@ -176,6 +204,16 @@ impl Storage {
 
     /// Count completed work sessions per day for the last N days (for heatmap).
     pub fn daily_counts(&self, days: u32) -> Result<Vec<(chrono::NaiveDate, u32)>> {
+        self.daily_counts_tagged(days, None)
+    }
+
+    /// Same as [`Storage::daily_counts`], but counting only sessions carrying
+    /// `tag` when one is given.
+    pub fn daily_counts_tagged(
+        &self,
+        days: u32,
+        tag: Option<&str>,
+    ) -> Result<Vec<(chrono::NaiveDate, u32)>> {
         let now = Utc::now();
         let from = now - chrono::Duration::days(days as i64);
         let sessions = self.get_sessions_in_range(from, now)?;
@@ -184,7 +222,8 @@ impl Storage {
             std::collections::HashMap::new();
 
         for session in sessions {
-            if session.phase == "work" && session.completed {
+            let matches_tag = tag.is_none_or(|t| session.has_tag(t));
+            if session.phase == "work" && session.completed && matches_tag {
                 let date = session.started_at.date_naive();
                 *counts.entry(date).or_insert(0) += 1;
             }
@@ -222,9 +261,32 @@ pub struct Stats {
 }
 
 impl Storage {
-    /// Compute aggregate stats over the last 365 days.
-    pub fn stats(&self) -> Result<Stats> {
-        let daily = self.daily_counts(365)?;
+    /// Completed work pomodoros per tag over the last 365 days, ordered from
+    /// most to least used. Sessions without tags are not counted.
+    pub fn tag_totals(&self) -> Result<Vec<(String, u32)>> {
+        let now = Utc::now();
+        let from = now - chrono::Duration::days(365);
+        let sessions = self.get_sessions_in_range(from, now)?;
+
+        let mut totals: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        for session in sessions {
+            if session.phase == "work" && session.completed {
+                for tag in &session.tags {
+                    *totals.entry(tag.clone()).or_insert(0) += 1;
+                }
+            }
+        }
+
+        let mut totals: Vec<(String, u32)> = totals.into_iter().collect();
+        // Most used first, alphabetical within a tie so output is stable.
+        totals.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        Ok(totals)
+    }
+
+    /// Compute aggregate stats over the last 365 days, optionally restricted
+    /// to sessions carrying `tag`.
+    pub fn stats_tagged(&self, tag: Option<&str>) -> Result<Stats> {
+        let daily = self.daily_counts_tagged(365, tag)?;
 
         let today = daily.last().map(|(_, c)| *c).unwrap_or(0);
         let week = daily.iter().rev().take(7).map(|(_, c)| c).sum();
@@ -294,7 +356,99 @@ mod tests {
     }
 
     fn session(phase: &str, completed: bool) -> Session {
-        Session::new(Utc::now(), 25, phase, completed)
+        Session::new(Utc::now(), 25, phase, completed, Vec::new())
+    }
+
+    fn tagged_session(phase: &str, completed: bool, tags: &[&str]) -> Session {
+        let tags = tags.iter().map(|t| t.to_string()).collect();
+        Session::new(Utc::now(), 25, phase, completed, tags)
+    }
+
+    #[test]
+    fn parse_tags_trims_lowercases_and_deduplicates() {
+        let raw = vec!["Tesis, rust".to_string(), " RUST ".to_string()];
+        assert_eq!(parse_tags(&raw), vec!["tesis", "rust"]);
+    }
+
+    #[test]
+    fn parse_tags_drops_empty_entries() {
+        let raw = vec![" , ,".to_string(), String::new()];
+        assert!(parse_tags(&raw).is_empty());
+    }
+
+    #[test]
+    fn has_tag_ignores_case() {
+        let s = tagged_session("work", true, &["tesis"]);
+        assert!(s.has_tag("TESIS"));
+        assert!(!s.has_tag("rust"));
+    }
+
+    #[test]
+    fn sessions_written_before_tags_existed_still_load() {
+        let (storage, dir) = temp_storage();
+        // A history line from v0.2.0, with no `tags` field at all.
+        let legacy_line = r#"{"id":"abc","started_at":"2026-01-01T10:00:00Z","ended_at":"2026-01-01T10:25:00Z","duration_minutes":25,"phase":"work","completed":true,"synced":false}"#;
+        fs::write(dir.join("sessions.jsonl"), format!("{legacy_line}\n")).unwrap();
+
+        let loaded = storage.load_sessions().unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert!(
+            loaded[0].tags.is_empty(),
+            "missing tags must default to empty, not fail the parse"
+        );
+    }
+
+    #[test]
+    fn stats_can_be_restricted_to_a_tag() {
+        let (storage, _dir) = temp_storage();
+        storage
+            .save_session(&tagged_session("work", true, &["tesis"]))
+            .unwrap();
+        storage
+            .save_session(&tagged_session("work", true, &["tesis", "rust"]))
+            .unwrap();
+        storage
+            .save_session(&tagged_session("work", true, &["rust"]))
+            .unwrap();
+        storage.save_session(&session("work", true)).unwrap(); // untagged
+
+        assert_eq!(storage.stats_tagged(None).unwrap().today, 4);
+        assert_eq!(storage.stats_tagged(Some("tesis")).unwrap().today, 2);
+        assert_eq!(storage.stats_tagged(Some("rust")).unwrap().today, 2);
+        assert_eq!(storage.stats_tagged(Some("ocio")).unwrap().today, 0);
+    }
+
+    #[test]
+    fn tag_totals_rank_by_use_and_ignore_uncounted_sessions() {
+        let (storage, _dir) = temp_storage();
+        for _ in 0..3 {
+            storage
+                .save_session(&tagged_session("work", true, &["rust"]))
+                .unwrap();
+        }
+        storage
+            .save_session(&tagged_session("work", true, &["tesis"]))
+            .unwrap();
+        // Neither of these should count toward any tag.
+        storage
+            .save_session(&tagged_session("work", false, &["tesis"]))
+            .unwrap();
+        storage
+            .save_session(&tagged_session("short_break", true, &["tesis"]))
+            .unwrap();
+
+        let totals = storage.tag_totals().unwrap();
+        assert_eq!(
+            totals,
+            vec![("rust".to_string(), 3), ("tesis".to_string(), 1)]
+        );
+    }
+
+    #[test]
+    fn tag_totals_are_empty_without_tagged_sessions() {
+        let (storage, _dir) = temp_storage();
+        storage.save_session(&session("work", true)).unwrap();
+        assert!(storage.tag_totals().unwrap().is_empty());
     }
 
     #[test]
@@ -347,7 +501,13 @@ mod tests {
     }
 
     fn work_session_days_ago(days: i64) -> Session {
-        Session::new(Utc::now() - chrono::Duration::days(days), 25, "work", true)
+        Session::new(
+            Utc::now() - chrono::Duration::days(days),
+            25,
+            "work",
+            true,
+            Vec::new(),
+        )
     }
 
     #[test]
@@ -359,7 +519,7 @@ mod tests {
         storage.save_session(&work_session_days_ago(10)).unwrap();
         storage.save_session(&work_session_days_ago(400)).unwrap(); // outside the year window
 
-        let stats = storage.stats().unwrap();
+        let stats = storage.stats_tagged(None).unwrap();
         assert_eq!(stats.today, 2);
         assert_eq!(stats.week, 3, "last 7 days include today and 3 days ago");
         assert_eq!(stats.year, 4);
@@ -378,7 +538,7 @@ mod tests {
             storage.save_session(&work_session_days_ago(days)).unwrap();
         }
 
-        let stats = storage.stats().unwrap();
+        let stats = storage.stats_tagged(None).unwrap();
         assert_eq!(stats.current_streak, 3);
         assert_eq!(stats.best_streak, 4);
     }
@@ -391,7 +551,7 @@ mod tests {
         storage.save_session(&work_session_days_ago(1)).unwrap();
         storage.save_session(&work_session_days_ago(2)).unwrap();
 
-        let stats = storage.stats().unwrap();
+        let stats = storage.stats_tagged(None).unwrap();
         assert_eq!(stats.current_streak, 2);
     }
 

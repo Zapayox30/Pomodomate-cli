@@ -56,6 +56,10 @@ pub struct Config {
     /// Shell commands run when the timer crosses a phase boundary
     #[serde(default)]
     pub hooks: crate::hooks::Hooks,
+
+    /// Tags attached to every session recorded in this run
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 // ── Default value functions ──────────────────────────────────────────
@@ -94,6 +98,7 @@ impl Default for Config {
             theme: default_theme(),
             custom_colors: None,
             hooks: crate::hooks::Hooks::default(),
+            tags: Vec::new(),
         }
     }
 }
