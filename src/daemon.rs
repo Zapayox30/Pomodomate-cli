@@ -91,7 +91,21 @@ pub fn serve(config: Config) -> Result<()> {
     let listener = UnixListener::bind(&path)
         .with_context(|| format!("Failed to bind socket {}", path.display()))?;
 
+    let idle_timeout = Duration::from_secs(config.idle_timeout * 60);
     let engine = Arc::new(Mutex::new(Engine::new(config)?));
+
+    // Pause the timer when the user walks away, where the compositor supports
+    // it. Absent elsewhere, and the daemon runs exactly as before.
+    if let Some(events) = crate::idle::watch(idle_timeout) {
+        let watched = Arc::clone(&engine);
+        std::thread::spawn(move || {
+            while let Ok(event) = events.recv() {
+                if let Ok(mut engine) = watched.lock() {
+                    engine.handle_idle(event);
+                }
+            }
+        });
+    }
 
     // The clock runs on its own thread so a slow client cannot delay a tick.
     let ticker = Arc::clone(&engine);

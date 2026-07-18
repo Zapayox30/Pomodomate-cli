@@ -41,6 +41,8 @@ dirs = "6"
 
 # Error Handling
 anyhow = "1"
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 
 [profile.release]
 strip = true

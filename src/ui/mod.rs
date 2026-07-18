@@ -506,6 +506,14 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
                 .fg(app.theme_colors.warm_yellow)
                 .add_modifier(Modifier::BOLD),
         ))
+    } else if app.engine.paused_by_idle {
+        // Explain the stopped clock instead of leaving them wondering.
+        Line::from(Span::styled(
+            "  ⏸ paused while you were away — press space to pick up where you left off",
+            Style::default()
+                .fg(app.theme_colors.warm_yellow)
+                .add_modifier(Modifier::BOLD),
+        ))
     } else {
         let view_name = match app.current_view {
             View::Timer => "Heatmap",

@@ -57,7 +57,18 @@ impl App {
         let mut last_tick = Instant::now();
         let mut last_timer_update = Instant::now();
 
+        // Absent on X11 or compositors without ext-idle-notify-v1, in which
+        // case the timer simply never pauses itself.
+        let idle_events =
+            crate::idle::watch(Duration::from_secs(self.engine.config.idle_timeout * 60));
+
         while !self.should_quit {
+            if let Some(events) = &idle_events {
+                while let Ok(event) = events.try_recv() {
+                    self.engine.handle_idle(event);
+                }
+            }
+
             // Draw
             terminal.draw(|frame: &mut Frame| {
                 ui::draw(frame, self);

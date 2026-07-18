@@ -21,6 +21,11 @@ pub struct Engine {
     pub storage: Storage,
     /// True while no work session has been completed today.
     pub first_session_today: bool,
+    /// True when the timer was paused because the user stepped away.
+    ///
+    /// Stays set after they come back, so the front-end can explain why the
+    /// clock is stopped instead of silently resuming.
+    pub paused_by_idle: bool,
     /// When the current phase started, if it is being timed.
     phase_started_at: Option<DateTime<Utc>>,
 }
@@ -42,6 +47,9 @@ pub struct Status {
     pub pomodoros: u32,
     /// Remaining time preformatted as `MM:SS`.
     pub time: String,
+    /// True when the pause was caused by the user stepping away.
+    #[serde(default)]
+    pub idle_paused: bool,
 }
 
 impl Status {
@@ -93,6 +101,7 @@ impl Engine {
             config,
             storage,
             first_session_today,
+            paused_by_idle: false,
             phase_started_at: None,
         }
     }
@@ -106,9 +115,22 @@ impl Engine {
         if starting {
             self.phase_started_at = Some(Utc::now());
         }
+        // Any deliberate control clears the away notice.
+        self.paused_by_idle = false;
         self.timer.toggle_pause();
         if starting {
             self.fire_phase_start();
+        }
+    }
+
+    /// Pause because the user stepped away from the desk.
+    ///
+    /// Only a running timer is affected, and the reason is remembered so the
+    /// front-end can tell them what happened when they return.
+    pub fn pause_for_idle(&mut self) {
+        if self.timer.status == TimerStatus::Running {
+            self.timer.status = TimerStatus::Paused;
+            self.paused_by_idle = true;
         }
     }
 
@@ -117,11 +139,13 @@ impl Engine {
     pub fn pause(&mut self) {
         if self.timer.status == TimerStatus::Running {
             self.timer.status = TimerStatus::Paused;
+            self.paused_by_idle = false;
         }
     }
 
     /// Resume a paused timer, or start an idle one. Idempotent.
     pub fn resume(&mut self) {
+        self.paused_by_idle = false;
         match self.timer.status {
             TimerStatus::Paused => self.timer.status = TimerStatus::Running,
             TimerStatus::Idle => self.toggle(),
@@ -132,6 +156,7 @@ impl Engine {
     /// Reset the current phase back to its full duration.
     pub fn reset(&mut self) {
         self.timer.reset();
+        self.paused_by_idle = false;
         self.phase_started_at = None;
     }
 
@@ -216,6 +241,18 @@ impl Engine {
             percent: (self.timer.progress() * 100.0).round() as u8,
             pomodoros: self.timer.pomodoros_completed,
             time: self.timer.remaining_display(),
+            idle_paused: self.paused_by_idle,
+        }
+    }
+
+    /// Apply an inactivity signal from the compositor.
+    ///
+    /// Returning is deliberately not the same as resuming: the timer stays
+    /// paused until the user says otherwise, so time spent away is never
+    /// counted as focus.
+    pub fn handle_idle(&mut self, event: crate::idle::IdleEvent) {
+        if event == crate::idle::IdleEvent::Idled {
+            self.pause_for_idle();
         }
     }
 
@@ -411,6 +448,69 @@ mod tests {
             e.storage.load_sessions().unwrap().is_empty(),
             "a reset phase was never timed, so nothing should be recorded"
         );
+    }
+
+    #[test]
+    fn going_idle_pauses_a_running_timer() {
+        let mut e = engine();
+        e.toggle();
+        e.handle_idle(crate::idle::IdleEvent::Idled);
+
+        assert_eq!(e.status().status, "paused");
+        assert!(e.paused_by_idle, "the pause reason should be remembered");
+        assert!(e.status().idle_paused);
+    }
+
+    #[test]
+    fn coming_back_does_not_resume_by_itself() {
+        let mut e = engine();
+        e.toggle();
+        e.handle_idle(crate::idle::IdleEvent::Idled);
+        e.handle_idle(crate::idle::IdleEvent::Resumed);
+
+        assert_eq!(
+            e.status().status,
+            "paused",
+            "time away must not be counted as focus"
+        );
+        assert!(
+            e.paused_by_idle,
+            "the notice stays until the user acts on it"
+        );
+    }
+
+    #[test]
+    fn resuming_by_hand_clears_the_idle_notice() {
+        let mut e = engine();
+        e.toggle();
+        e.handle_idle(crate::idle::IdleEvent::Idled);
+        e.resume();
+
+        assert_eq!(e.status().status, "running");
+        assert!(!e.paused_by_idle);
+        assert!(!e.status().idle_paused);
+    }
+
+    #[test]
+    fn idle_does_not_disturb_a_timer_that_was_never_started() {
+        let mut e = engine();
+        e.handle_idle(crate::idle::IdleEvent::Idled);
+
+        assert_eq!(e.status().status, "idle");
+        assert!(
+            !e.paused_by_idle,
+            "nothing was running, so nothing was paused"
+        );
+    }
+
+    #[test]
+    fn a_manual_pause_is_not_reported_as_an_idle_pause() {
+        let mut e = engine();
+        e.toggle();
+        e.pause();
+
+        assert_eq!(e.status().status, "paused");
+        assert!(!e.status().idle_paused);
     }
 
     #[test]

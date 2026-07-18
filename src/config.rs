@@ -60,6 +60,13 @@ pub struct Config {
     /// Tags attached to every session recorded in this run
     #[serde(default)]
     pub tags: Vec<String>,
+
+    /// Minutes of inactivity before the timer pauses itself (0 disables it).
+    ///
+    /// Needs a Wayland compositor supporting `ext-idle-notify-v1`; elsewhere
+    /// it is silently ignored.
+    #[serde(default = "default_idle_timeout")]
+    pub idle_timeout: u64,
 }
 
 // ── Default value functions ──────────────────────────────────────────
@@ -82,6 +89,9 @@ fn default_true() -> bool {
 fn default_theme() -> String {
     "default".to_string()
 }
+fn default_idle_timeout() -> u64 {
+    5
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -99,6 +109,7 @@ impl Default for Config {
             custom_colors: None,
             hooks: crate::hooks::Hooks::default(),
             tags: Vec::new(),
+            idle_timeout: default_idle_timeout(),
         }
     }
 }

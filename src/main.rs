@@ -3,6 +3,7 @@ mod config;
 mod daemon;
 mod engine;
 mod hooks;
+mod idle;
 mod storage;
 mod theme;
 mod timer;
