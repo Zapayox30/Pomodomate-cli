@@ -125,10 +125,14 @@ impl App {
         match key {
             KeyCode::Char(' ') => {
                 // Record phase start time when starting for the first time
-                if self.timer.status == TimerStatus::Idle {
+                let starting = self.timer.status == TimerStatus::Idle;
+                if starting {
                     self.phase_started_at = Some(Utc::now());
                 }
                 self.timer.toggle_pause();
+                if starting {
+                    self.fire_phase_start();
+                }
             }
             KeyCode::Char('r') => {
                 self.timer.reset();
@@ -139,10 +143,14 @@ impl App {
                 if let Some(started) = self.phase_started_at.take() {
                     self.save_session(started, false)?;
                 }
+                // The phase ends here even though it was not completed, so
+                // teardown hooks still get a chance to undo their setup.
+                self.fire_phase_end(false);
                 self.timer.skip();
                 // Only start the clock on the new phase if it actually started
                 if self.timer.status == TimerStatus::Running {
                     self.phase_started_at = Some(Utc::now());
+                    self.fire_phase_start();
                 }
             }
             KeyCode::Char('h') => {
@@ -195,34 +203,84 @@ impl App {
             Self::ring_bell();
         }
 
+        // Fire the end hook while `timer.phase` still refers to the phase
+        // that just finished.
+        self.fire_phase_end(true);
+
         // Advance to next phase
         self.timer.advance_to_next_phase();
 
         // Record start of new phase if auto-starting
         if self.timer.status == TimerStatus::Running {
             self.phase_started_at = Some(Utc::now());
+            self.fire_phase_start();
         }
 
         Ok(())
     }
 
-    /// Save a session record to local storage.
-    fn save_session(&self, started: chrono::DateTime<Utc>, completed: bool) -> Result<()> {
-        let phase_str = match self.timer.phase {
+    /// Stable identifier for a phase, used in stored sessions and hook env.
+    fn phase_name(phase: TimerPhase) -> &'static str {
+        match phase {
             TimerPhase::Work => "work",
             TimerPhase::ShortBreak => "short_break",
             TimerPhase::LongBreak => "long_break",
-        };
+        }
+    }
 
-        let duration = match self.timer.phase {
+    /// Configured length of a phase in minutes.
+    fn phase_duration(&self, phase: TimerPhase) -> u64 {
+        match phase {
             TimerPhase::Work => self.config.work_duration,
             TimerPhase::ShortBreak => self.config.short_break,
             TimerPhase::LongBreak => self.config.long_break,
-        };
+        }
+    }
 
-        let session = Session::new(started, duration, phase_str, completed);
+    /// Save a session record to local storage.
+    fn save_session(&self, started: chrono::DateTime<Utc>, completed: bool) -> Result<()> {
+        let session = Session::new(
+            started,
+            self.phase_duration(self.timer.phase),
+            Self::phase_name(self.timer.phase),
+            completed,
+        );
         self.storage.save_session(&session)?;
         Ok(())
+    }
+
+    /// Describe the current phase for a hook invocation.
+    fn hook_context(&self, completed: bool) -> crate::hooks::HookContext {
+        crate::hooks::HookContext {
+            phase: Self::phase_name(self.timer.phase).to_string(),
+            pomodoros: self.timer.pomodoros_completed,
+            duration_minutes: self.phase_duration(self.timer.phase),
+            tags: String::new(),
+            completed,
+        }
+    }
+
+    /// Fire the start hook for whichever phase just began.
+    fn fire_phase_start(&self) {
+        let hook = match self.timer.phase {
+            TimerPhase::Work => &self.config.hooks.work_start,
+            TimerPhase::ShortBreak | TimerPhase::LongBreak => &self.config.hooks.break_start,
+        };
+        if let Some(line) = hook {
+            crate::hooks::spawn(line, &self.hook_context(false));
+        }
+    }
+
+    /// Fire the end hook for the phase that is finishing. `completed` is false
+    /// when the user skipped out of it.
+    fn fire_phase_end(&self, completed: bool) {
+        let hook = match self.timer.phase {
+            TimerPhase::Work => &self.config.hooks.work_end,
+            TimerPhase::ShortBreak | TimerPhase::LongBreak => &self.config.hooks.break_end,
+        };
+        if let Some(line) = hook {
+            crate::hooks::spawn(line, &self.hook_context(completed));
+        }
     }
 
     /// Send a desktop notification for the current phase transition.

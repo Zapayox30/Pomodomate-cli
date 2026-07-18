@@ -52,6 +52,10 @@ pub struct Config {
     /// Custom colors overrides for expert customization
     #[serde(default)]
     pub custom_colors: Option<crate::theme::CustomColors>,
+
+    /// Shell commands run when the timer crosses a phase boundary
+    #[serde(default)]
+    pub hooks: crate::hooks::Hooks,
 }
 
 // ── Default value functions ──────────────────────────────────────────
@@ -89,6 +93,7 @@ impl Default for Config {
             show_mascot: true,
             theme: default_theme(),
             custom_colors: None,
+            hooks: crate::hooks::Hooks::default(),
         }
     }
 }

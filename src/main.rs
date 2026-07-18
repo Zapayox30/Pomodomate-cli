@@ -1,5 +1,6 @@
 mod app;
 mod config;
+mod hooks;
 mod storage;
 mod theme;
 mod timer;
