@@ -52,7 +52,7 @@ fn fits_big_digits(width: u16) -> bool {
 /// Main draw function — renders the entire UI frame.
 pub fn draw(frame: &mut Frame, app: &App) {
     let area = frame.area();
-    let mode = layout_mode(area.width, area.height, app.config.show_mascot);
+    let mode = layout_mode(area.width, area.height, app.engine.config.show_mascot);
 
     // Background
     let bg_block = Block::default().style(Style::default().bg(app.theme_colors.dark_bg));
@@ -120,20 +120,20 @@ fn draw_mini_view(frame: &mut Frame, app: &App, area: Rect) {
     ])
     .split(area);
 
-    let pc = phase_color(&app.timer.phase, &app.theme_colors);
+    let pc = phase_color(&app.engine.timer.phase, &app.theme_colors);
     let status = Paragraph::new(Line::from(vec![
         Span::styled(
-            format!(" {} ", app.timer.phase.label()),
+            format!(" {} ", app.engine.timer.phase.label()),
             Style::default().fg(pc).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            app.timer.remaining_display(),
+            app.engine.timer.remaining_display(),
             Style::default()
                 .fg(app.theme_colors.soft_white)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("  🍅 {}", app.timer.pomodoros_completed),
+            format!("  🍅 {}", app.engine.timer.pomodoros_completed),
             Style::default().fg(app.theme_colors.muted_text),
         ),
     ]));
@@ -141,7 +141,7 @@ fn draw_mini_view(frame: &mut Frame, app: &App, area: Rect) {
 
     let gauge = Gauge::default()
         .gauge_style(Style::default().fg(pc).bg(app.theme_colors.progress_bg))
-        .ratio(app.timer.progress())
+        .ratio(app.engine.timer.progress())
         .label("");
     frame.render_widget(gauge, chunks[1]);
 
@@ -221,16 +221,16 @@ fn draw_heatmap_view(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Header bar with app title and current state.
 fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
-    let pc = phase_color(&app.timer.phase, &app.theme_colors);
+    let pc = phase_color(&app.engine.timer.phase, &app.theme_colors);
 
-    let status_icon = match app.timer.status {
+    let status_icon = match app.engine.timer.status {
         TimerStatus::Running => ("▶", app.theme_colors.nature_green),
         TimerStatus::Paused => ("⏸", app.theme_colors.warm_yellow),
         TimerStatus::Idle => ("●", app.theme_colors.muted_text),
         TimerStatus::Completed => ("✓", app.theme_colors.nature_green),
     };
 
-    let status_text = match app.timer.status {
+    let status_text = match app.engine.timer.status {
         TimerStatus::Running => "Running",
         TimerStatus::Paused => "Paused",
         TimerStatus::Idle => "Ready",
@@ -247,7 +247,7 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
         ),
         Span::styled("  ╱  ", Style::default().fg(app.theme_colors.border_dim)),
         Span::styled(
-            app.timer.phase.label(),
+            app.engine.timer.phase.label(),
             Style::default().fg(pc).add_modifier(Modifier::BOLD),
         ),
         Span::styled("  ╱  ", Style::default().fg(app.theme_colors.border_dim)),
@@ -269,18 +269,18 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Timer display: box-drawing digits when there's room, plain MM:SS otherwise.
 fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect, use_big: bool) {
-    let time_str = app.timer.remaining_display();
-    let pc = if app.timer.is_last_minute() {
+    let time_str = app.engine.timer.remaining_display();
+    let pc = if app.engine.timer.is_last_minute() {
         app.theme_colors.warm_yellow
     } else {
-        phase_color(&app.timer.phase, &app.theme_colors)
+        phase_color(&app.engine.timer.phase, &app.theme_colors)
     };
 
     let mut lines: Vec<Line<'static>> = Vec::new();
 
     // Phase label above timer
     lines.push(Line::from(vec![Span::styled(
-        app.timer.phase.label(),
+        app.engine.timer.phase.label(),
         Style::default().fg(pc).add_modifier(Modifier::BOLD),
     )]));
     lines.push(Line::from(""));
@@ -308,9 +308,9 @@ fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect, use_big: bool) {
     // Cycle info below
     let cycle_text = format!(
         "Pomodoro #{} ─ Cycle {}/{}",
-        app.timer.pomodoros_completed + 1,
-        app.timer.cycle_position + 1,
-        app.config.long_break_interval
+        app.engine.timer.pomodoros_completed + 1,
+        app.engine.timer.cycle_position + 1,
+        app.engine.config.long_break_interval
     );
     lines.push(Line::from(Span::styled(
         cycle_text,
@@ -318,7 +318,7 @@ fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect, use_big: bool) {
     )));
 
     // Status hint
-    let hint = match app.timer.status {
+    let hint = match app.engine.timer.status {
         TimerStatus::Idle => "press [space] to start",
         TimerStatus::Paused => "press [space] to resume",
         TimerStatus::Completed => "press [space] for next",
@@ -424,9 +424,9 @@ fn render_big_time(mins: &str, secs: &str, color: Color) -> Vec<Line<'static>> {
 
 /// Visual pomodoro counter — shows completed tomatoes.
 fn draw_pomodoro_counter(frame: &mut Frame, app: &App, area: Rect) {
-    let completed = app.timer.pomodoros_completed;
-    let cycle_pos = app.timer.cycle_position;
-    let interval = app.config.long_break_interval;
+    let completed = app.engine.timer.pomodoros_completed;
+    let cycle_pos = app.engine.timer.cycle_position;
+    let interval = app.engine.config.long_break_interval;
 
     let mut spans: Vec<Span<'static>> = vec![Span::styled("  ", Style::default())];
 
@@ -434,12 +434,12 @@ fn draw_pomodoro_counter(frame: &mut Frame, app: &App, area: Rect) {
     for i in 0..interval {
         if i < cycle_pos
             || (i == cycle_pos
-                && app.timer.phase == TimerPhase::Work
-                && app.timer.status == TimerStatus::Completed)
+                && app.engine.timer.phase == TimerPhase::Work
+                && app.engine.timer.status == TimerStatus::Completed)
         {
             // Completed in this cycle
             spans.push(Span::styled(" 🍅", Style::default()));
-        } else if i == cycle_pos && app.timer.phase == TimerPhase::Work {
+        } else if i == cycle_pos && app.engine.timer.phase == TimerPhase::Work {
             // Current (in progress)
             spans.push(Span::styled(
                 " 🍅",
@@ -472,11 +472,11 @@ fn draw_pomodoro_counter(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Progress bar showing how much of the current phase is done.
 fn draw_progress_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let pc = phase_color(&app.timer.phase, &app.theme_colors);
-    let progress = app.timer.progress();
+    let pc = phase_color(&app.engine.timer.phase, &app.theme_colors);
+    let progress = app.engine.timer.progress();
 
     let pct = (progress * 100.0) as u32;
-    let label = format!("{}%  ─  {}", pct, app.timer.remaining_display());
+    let label = format!("{}%  ─  {}", pct, app.engine.timer.remaining_display());
 
     let gauge = Gauge::default()
         .block(

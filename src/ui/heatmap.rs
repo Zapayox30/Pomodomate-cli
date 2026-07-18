@@ -22,7 +22,7 @@ fn intensity_color(count: u32) -> Color {
 /// Draw a GitHub-style contribution heatmap of completed pomodoros.
 pub fn draw_heatmap(frame: &mut Frame, app: &App, area: Rect) {
     // Load daily counts from storage (last 365 days)
-    let daily_counts = match app.storage.daily_counts(365) {
+    let daily_counts = match app.engine.storage.daily_counts(365) {
         Ok(counts) => counts,
         Err(_) => {
             let error_msg = Paragraph::new("Failed to load session history")

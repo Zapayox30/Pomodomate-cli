@@ -2,6 +2,10 @@
 
 Show your Pomodoro stats in Waybar using `pomodomate stats --json`.
 
+> **Want the countdown live in the bar instead of a daily total?** Run the
+> background daemon and use `pomodomate status` — it also lets you start, pause
+> and skip by clicking the module. See [daemon.md](daemon.md).
+
 ## Simple: today's pomodoro count
 
 Add to `~/.config/waybar/config.jsonc`:

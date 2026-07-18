@@ -1,5 +1,7 @@
 mod app;
 mod config;
+mod daemon;
+mod engine;
 mod hooks;
 mod storage;
 mod theme;
@@ -85,13 +87,42 @@ enum Command {
         #[arg(long)]
         by_tag: bool,
     },
+
+    /// Run the timer in the background, controllable from anywhere
+    Daemon,
+
+    /// Send a command to the running daemon (toggle, pause, resume, skip, reset, quit)
+    Ctl {
+        /// One of: toggle, start, pause, resume, reset, skip, quit
+        command: String,
+    },
+
+    /// Print the running daemon's state, for status bars
+    Status {
+        /// Template to render, e.g. "{icon} {time}" or "{phase} {percent}%"
+        #[arg(long, value_name = "TEMPLATE")]
+        format: Option<String>,
+
+        /// Output the raw status object instead of a formatted line
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    if let Some(Command::Stats { json, tag, by_tag }) = cli.command {
-        return print_stats(json, tag.as_deref(), by_tag);
+    // Subcommands that talk to an existing daemon or to the history file need
+    // no config of their own.
+    match &cli.command {
+        Some(Command::Stats { json, tag, by_tag }) => {
+            return print_stats(*json, tag.as_deref(), *by_tag);
+        }
+        Some(Command::Ctl { command }) => return run_ctl(command),
+        Some(Command::Status { format, json }) => {
+            return print_daemon_status(format.as_deref(), *json);
+        }
+        _ => {}
     }
 
     // Load configuration
@@ -136,6 +167,11 @@ fn main() -> Result<()> {
         .validate()
         .context("Invalid command-line options (durations must be greater than 0)")?;
 
+    // The daemon runs the same engine as the TUI, just without a screen.
+    if matches!(cli.command, Some(Command::Daemon)) {
+        return daemon::serve(config);
+    }
+
     // Initialize the app
     let mut app = App::new(config).context("Failed to initialize Pomodomate")?;
 
@@ -153,8 +189,38 @@ fn main() -> Result<()> {
 
     println!(
         "🍅 Thanks for using Pomodomate! You completed {} pomodoros. See you next time!",
-        app.timer.pomodoros_completed
+        app.engine.timer.pomodoros_completed
     );
+
+    Ok(())
+}
+
+/// `pomodomate ctl <command>` — forward a command to the daemon.
+fn run_ctl(command: &str) -> Result<()> {
+    if !daemon::COMMANDS.contains(&command) {
+        anyhow::bail!(
+            "unknown command {command:?} — try one of: {}",
+            daemon::COMMANDS.join(", ")
+        );
+    }
+
+    let reply = daemon::request(command)?;
+    // `status` answers with JSON; the rest just acknowledge.
+    if !reply.is_empty() && reply != "ok" {
+        println!("{reply}");
+    }
+    Ok(())
+}
+
+/// `pomodomate status` — render the daemon's state for a status bar.
+fn print_daemon_status(format: Option<&str>, json: bool) -> Result<()> {
+    let status = daemon::query_status()?;
+
+    if json {
+        println!("{}", serde_json::to_string(&status)?);
+    } else {
+        println!("{}", status.render(format.unwrap_or("{icon} {time}")));
+    }
 
     Ok(())
 }

@@ -25,23 +25,26 @@ pub enum MascotState {
 
 impl MascotState {
     pub fn from_timer(app: &App) -> Self {
-        if app.timer.status == TimerStatus::Completed {
+        if app.engine.timer.status == TimerStatus::Completed {
             return MascotState::Completed;
         }
-        if matches!(app.timer.status, TimerStatus::Idle | TimerStatus::Paused) {
-            let awaiting_first_work = app.timer.phase == TimerPhase::Work
-                && app.timer.pomodoros_completed == 0
-                && app.first_session_today;
+        if matches!(
+            app.engine.timer.status,
+            TimerStatus::Idle | TimerStatus::Paused
+        ) {
+            let awaiting_first_work = app.engine.timer.phase == TimerPhase::Work
+                && app.engine.timer.pomodoros_completed == 0
+                && app.engine.first_session_today;
             return if awaiting_first_work {
                 MascotState::Sunrise
             } else {
                 MascotState::Idle
             };
         }
-        if app.timer.is_last_minute() {
+        if app.engine.timer.is_last_minute() {
             return MascotState::LastMinute;
         }
-        match app.timer.phase {
+        match app.engine.timer.phase {
             TimerPhase::Work => MascotState::Working,
             TimerPhase::ShortBreak => MascotState::ShortBreak,
             TimerPhase::LongBreak => MascotState::LongBreak,
@@ -51,7 +54,7 @@ impl MascotState {
 
 pub fn draw_mascot(frame: &mut Frame, app: &App, area: Rect) {
     let state = MascotState::from_timer(app);
-    let tick = app.timer.tick;
+    let tick = app.engine.timer.tick;
 
     let mascot_lines = generate_sprite(state, tick, &app.theme_colors);
 
