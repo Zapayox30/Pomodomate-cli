@@ -8,7 +8,6 @@ use ratatui::{
 
 use crate::app::App;
 use crate::timer::{TimerPhase, TimerStatus};
-use crate::ui::DARK_BASE;
 
 /// Visual states for the Domate mascot animation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,11 +53,11 @@ pub fn draw_mascot(frame: &mut Frame, app: &App, area: Rect) {
     let state = MascotState::from_timer(app);
     let tick = app.timer.tick;
 
-    let mascot_lines = generate_sprite(state, tick);
+    let mascot_lines = generate_sprite(state, tick, &app.theme_colors);
 
     let paragraph = Paragraph::new(mascot_lines)
         .alignment(Alignment::Center)
-        .block(Block::default().style(Style::default().bg(DARK_BASE)));
+        .block(Block::default().style(Style::default().bg(app.theme_colors.dark_base)));
 
     frame.render_widget(paragraph, area);
 }
@@ -78,7 +77,11 @@ const ZZZ: Color = Color::Rgb(155, 89, 182); // Sleep Zzz color
 const SWEAT: Color = Color::Rgb(100, 200, 255); // Last minute sweat color
 const SWEAT_OUTLINE: Color = Color::Rgb(20, 80, 120); // Sweat shadow
 
-fn generate_sprite(state: MascotState, tick: u64) -> Vec<Line<'static>> {
+fn generate_sprite(
+    state: MascotState,
+    tick: u64,
+    colors: &crate::theme::ThemeColors,
+) -> Vec<Line<'static>> {
     let frame_idx = (tick / 4) % 4;
     let is_fast = state == MascotState::LastMinute;
     let bob_frame = if is_fast { (tick / 2) % 4 } else { frame_idx };
@@ -142,7 +145,7 @@ fn generate_sprite(state: MascotState, tick: u64) -> Vec<Line<'static>> {
                     '*' => spans.push(Span::styled(" ✨", Style::default())),
                     's' => spans.push(Span::styled("  ", Style::default().bg(SWEAT_OUTLINE))),
                     'w' => spans.push(Span::styled("  ", Style::default().bg(SWEAT))),
-                    _ => spans.push(Span::styled("  ", Style::default().bg(DARK_BASE))), // Transparent
+                    _ => spans.push(Span::styled("  ", Style::default().bg(colors.dark_base))), // Transparent
                 }
             }
         }

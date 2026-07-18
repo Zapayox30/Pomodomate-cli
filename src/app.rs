@@ -35,6 +35,8 @@ pub struct App {
     pub show_help: bool,
     /// True after a first `q` while the timer runs (waiting for confirmation)
     pub quit_pending: bool,
+    /// Active theme colors
+    pub theme_colors: crate::theme::ThemeColors,
     /// Timestamp when the current phase started (for session logging)
     phase_started_at: Option<chrono::DateTime<Utc>>,
 }
@@ -44,6 +46,7 @@ impl App {
     pub fn new(config: Config) -> Result<Self> {
         let timer = Timer::new(&config);
         let storage = Storage::new()?;
+        let theme_colors = crate::theme::ThemeColors::get(&config.theme, &config.custom_colors);
 
         let first_session_today = storage
             .daily_counts(1)
@@ -59,6 +62,7 @@ impl App {
             first_session_today,
             show_help: false,
             quit_pending: false,
+            theme_colors,
             phase_started_at: None,
         })
     }

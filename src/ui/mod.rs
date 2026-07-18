@@ -13,28 +13,12 @@ use crate::app::{App, View};
 use crate::timer::{TimerPhase, TimerStatus};
 
 // ── Pomodomate color palette ─────────────────────────────────────────
-pub const TOMATO_RED: Color = Color::Rgb(192, 57, 43); // #C0392B
-pub const NATURE_GREEN: Color = Color::Rgb(39, 174, 96); // #27AE60
-#[allow(dead_code)]
-pub const CHEEK_PINK: Color = Color::Rgb(250, 219, 216); // #FADBD8
-pub const DARK_BASE: Color = Color::Rgb(28, 40, 51); // #1C2833
-pub const SOFT_WHITE: Color = Color::Rgb(236, 240, 241); // #ECF0F1
-pub const WARM_YELLOW: Color = Color::Rgb(243, 156, 18); // #F39C12
-pub const ACCENT_PURPLE: Color = Color::Rgb(142, 68, 173); // #8E44AD
-
-// Extended palette
-const DARK_BG: Color = Color::Rgb(20, 30, 40); // Darker background
-const BORDER_DIM: Color = Color::Rgb(52, 73, 94); // Subtle border
-const BORDER_GLOW: Color = Color::Rgb(80, 110, 140); // Active border glow
-const MUTED_TEXT: Color = Color::Rgb(127, 140, 141); // Muted gray text
-const PROGRESS_BG: Color = Color::Rgb(44, 62, 80); // Progress bar background
-
 /// Get phase-specific color
-fn phase_color(phase: &TimerPhase) -> Color {
+fn phase_color(phase: &TimerPhase, colors: &crate::theme::ThemeColors) -> Color {
     match phase {
-        TimerPhase::Work => TOMATO_RED,
-        TimerPhase::ShortBreak => NATURE_GREEN,
-        TimerPhase::LongBreak => ACCENT_PURPLE,
+        TimerPhase::Work => colors.tomato_red,
+        TimerPhase::ShortBreak => colors.nature_green,
+        TimerPhase::LongBreak => colors.accent_purple,
     }
 }
 
@@ -50,8 +34,8 @@ pub enum LayoutMode {
 }
 
 /// Pick a layout that fits without clipping the mascot mid-body.
-fn layout_mode(_width: u16, height: u16) -> LayoutMode {
-    if height >= 38 {
+fn layout_mode(_width: u16, height: u16, show_mascot: bool) -> LayoutMode {
+    if height >= 38 && show_mascot {
         LayoutMode::Full
     } else if height >= 15 {
         LayoutMode::Compact
@@ -68,10 +52,10 @@ fn fits_big_digits(width: u16) -> bool {
 /// Main draw function — renders the entire UI frame.
 pub fn draw(frame: &mut Frame, app: &App) {
     let area = frame.area();
-    let mode = layout_mode(area.width, area.height);
+    let mode = layout_mode(area.width, area.height, app.config.show_mascot);
 
     // Background
-    let bg_block = Block::default().style(Style::default().bg(DARK_BG));
+    let bg_block = Block::default().style(Style::default().bg(app.theme_colors.dark_bg));
     frame.render_widget(bg_block, area);
 
     match (mode, app.current_view) {
@@ -81,7 +65,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
 
     if app.show_help {
-        draw_help_overlay(frame, area);
+        draw_help_overlay(frame, area, &app.theme_colors);
     }
 }
 
@@ -136,7 +120,7 @@ fn draw_mini_view(frame: &mut Frame, app: &App, area: Rect) {
     ])
     .split(area);
 
-    let pc = phase_color(&app.timer.phase);
+    let pc = phase_color(&app.timer.phase, &app.theme_colors);
     let status = Paragraph::new(Line::from(vec![
         Span::styled(
             format!(" {} ", app.timer.phase.label()),
@@ -144,30 +128,32 @@ fn draw_mini_view(frame: &mut Frame, app: &App, area: Rect) {
         ),
         Span::styled(
             app.timer.remaining_display(),
-            Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(app.theme_colors.soft_white)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("  🍅 {}", app.timer.pomodoros_completed),
-            Style::default().fg(MUTED_TEXT),
+            Style::default().fg(app.theme_colors.muted_text),
         ),
     ]));
     frame.render_widget(status, chunks[0]);
 
     let gauge = Gauge::default()
-        .gauge_style(Style::default().fg(pc).bg(PROGRESS_BG))
+        .gauge_style(Style::default().fg(pc).bg(app.theme_colors.progress_bg))
         .ratio(app.timer.progress())
         .label("");
     frame.render_widget(gauge, chunks[1]);
 
     let keys = Paragraph::new(Line::from(Span::styled(
         " space pause · s skip · q quit",
-        Style::default().fg(MUTED_TEXT),
+        Style::default().fg(app.theme_colors.muted_text),
     )));
     frame.render_widget(keys, chunks[2]);
 }
 
 /// Centered help overlay listing every keybinding. Any key closes it.
-fn draw_help_overlay(frame: &mut Frame, area: Rect) {
+fn draw_help_overlay(frame: &mut Frame, area: Rect, colors: &crate::theme::ThemeColors) {
     let width = 44.min(area.width);
     let height = 14.min(area.height);
     let popup = Rect {
@@ -180,9 +166,9 @@ fn draw_help_overlay(frame: &mut Frame, area: Rect) {
     frame.render_widget(ratatui::widgets::Clear, popup);
 
     let key_style = Style::default()
-        .fg(WARM_YELLOW)
+        .fg(colors.warm_yellow)
         .add_modifier(Modifier::BOLD);
-    let text_style = Style::default().fg(SOFT_WHITE);
+    let text_style = Style::default().fg(colors.soft_white);
     let key_line = |key: &'static str, action: &'static str| {
         Line::from(vec![
             Span::styled(format!("  {:>7}  ", key), key_style),
@@ -202,17 +188,19 @@ fn draw_help_overlay(frame: &mut Frame, area: Rect) {
         Line::from(""),
         Line::from(Span::styled(
             "  press any key to close",
-            Style::default().fg(MUTED_TEXT).add_modifier(Modifier::DIM),
+            Style::default()
+                .fg(colors.muted_text)
+                .add_modifier(Modifier::DIM),
         )),
     ];
 
     let help = Paragraph::new(lines).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(BORDER_GLOW))
+            .border_style(Style::default().fg(colors.border_glow))
             .title(" ❔ Help ")
             .title_alignment(Alignment::Center)
-            .style(Style::default().bg(DARK_BASE)),
+            .style(Style::default().bg(colors.dark_base)),
     );
     frame.render_widget(help, popup);
 }
@@ -233,13 +221,13 @@ fn draw_heatmap_view(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Header bar with app title and current state.
 fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
-    let pc = phase_color(&app.timer.phase);
+    let pc = phase_color(&app.timer.phase, &app.theme_colors);
 
     let status_icon = match app.timer.status {
-        TimerStatus::Running => ("▶", NATURE_GREEN),
-        TimerStatus::Paused => ("⏸", WARM_YELLOW),
-        TimerStatus::Idle => ("●", MUTED_TEXT),
-        TimerStatus::Completed => ("✓", NATURE_GREEN),
+        TimerStatus::Running => ("▶", app.theme_colors.nature_green),
+        TimerStatus::Paused => ("⏸", app.theme_colors.warm_yellow),
+        TimerStatus::Idle => ("●", app.theme_colors.muted_text),
+        TimerStatus::Completed => ("✓", app.theme_colors.nature_green),
     };
 
     let status_text = match app.timer.status {
@@ -250,25 +238,30 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let header = Paragraph::new(Line::from(vec![
-        Span::styled("  🍅 ", Style::default().fg(TOMATO_RED)),
+        Span::styled("  🍅 ", Style::default().fg(app.theme_colors.tomato_red)),
         Span::styled(
             "Pomodomate",
-            Style::default().fg(TOMATO_RED).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(app.theme_colors.tomato_red)
+                .add_modifier(Modifier::BOLD),
         ),
-        Span::styled("  ╱  ", Style::default().fg(BORDER_DIM)),
+        Span::styled("  ╱  ", Style::default().fg(app.theme_colors.border_dim)),
         Span::styled(
             app.timer.phase.label(),
             Style::default().fg(pc).add_modifier(Modifier::BOLD),
         ),
-        Span::styled("  ╱  ", Style::default().fg(BORDER_DIM)),
+        Span::styled("  ╱  ", Style::default().fg(app.theme_colors.border_dim)),
         Span::styled(status_icon.0, Style::default().fg(status_icon.1)),
-        Span::styled(format!(" {}", status_text), Style::default().fg(SOFT_WHITE)),
+        Span::styled(
+            format!(" {}", status_text),
+            Style::default().fg(app.theme_colors.soft_white),
+        ),
     ]))
     .block(
         Block::default()
             .borders(Borders::BOTTOM)
-            .border_style(Style::default().fg(BORDER_DIM))
-            .style(Style::default().bg(DARK_BASE)),
+            .border_style(Style::default().fg(app.theme_colors.border_dim))
+            .style(Style::default().bg(app.theme_colors.dark_base)),
     );
 
     frame.render_widget(header, area);
@@ -278,9 +271,9 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
 fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect, use_big: bool) {
     let time_str = app.timer.remaining_display();
     let pc = if app.timer.is_last_minute() {
-        WARM_YELLOW
+        app.theme_colors.warm_yellow
     } else {
-        phase_color(&app.timer.phase)
+        phase_color(&app.timer.phase, &app.theme_colors)
     };
 
     let mut lines: Vec<Line<'static>> = Vec::new();
@@ -321,7 +314,7 @@ fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect, use_big: bool) {
     );
     lines.push(Line::from(Span::styled(
         cycle_text,
-        Style::default().fg(MUTED_TEXT),
+        Style::default().fg(app.theme_colors.muted_text),
     )));
 
     // Status hint
@@ -334,13 +327,15 @@ fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect, use_big: bool) {
     if !hint.is_empty() {
         lines.push(Line::from(Span::styled(
             hint,
-            Style::default().fg(WARM_YELLOW).add_modifier(Modifier::DIM),
+            Style::default()
+                .fg(app.theme_colors.warm_yellow)
+                .add_modifier(Modifier::DIM),
         )));
     }
 
     let timer_paragraph = Paragraph::new(lines)
         .alignment(Alignment::Center)
-        .block(Block::default().style(Style::default().bg(DARK_BG)));
+        .block(Block::default().style(Style::default().bg(app.theme_colors.dark_bg)));
 
     frame.render_widget(timer_paragraph, area);
 }
@@ -452,21 +447,24 @@ fn draw_pomodoro_counter(frame: &mut Frame, app: &App, area: Rect) {
             ));
         } else {
             // Not yet
-            spans.push(Span::styled(" ○ ", Style::default().fg(BORDER_DIM)));
+            spans.push(Span::styled(
+                " ○ ",
+                Style::default().fg(app.theme_colors.border_dim),
+            ));
         }
     }
 
     // Total count
     spans.push(Span::styled(
         format!("    │ Total: {}", completed),
-        Style::default().fg(MUTED_TEXT),
+        Style::default().fg(app.theme_colors.muted_text),
     ));
 
     let counter = Paragraph::new(Line::from(spans)).block(
         Block::default()
             .borders(Borders::TOP)
-            .border_style(Style::default().fg(BORDER_DIM))
-            .style(Style::default().bg(DARK_BASE)),
+            .border_style(Style::default().fg(app.theme_colors.border_dim))
+            .style(Style::default().bg(app.theme_colors.dark_base)),
     );
 
     frame.render_widget(counter, area);
@@ -474,7 +472,7 @@ fn draw_pomodoro_counter(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Progress bar showing how much of the current phase is done.
 fn draw_progress_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let pc = phase_color(&app.timer.phase);
+    let pc = phase_color(&app.timer.phase, &app.theme_colors);
     let progress = app.timer.progress();
 
     let pct = (progress * 100.0) as u32;
@@ -484,14 +482,16 @@ fn draw_progress_bar(frame: &mut Frame, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(BORDER_DIM))
-                .style(Style::default().bg(DARK_BASE)),
+                .border_style(Style::default().fg(app.theme_colors.border_dim))
+                .style(Style::default().bg(app.theme_colors.dark_base)),
         )
-        .gauge_style(Style::default().fg(pc).bg(PROGRESS_BG))
+        .gauge_style(Style::default().fg(pc).bg(app.theme_colors.progress_bg))
         .ratio(progress)
         .label(Span::styled(
             label,
-            Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(app.theme_colors.soft_white)
+                .add_modifier(Modifier::BOLD),
         ));
 
     frame.render_widget(gauge, area);
@@ -503,7 +503,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(Span::styled(
             "  ⚠ timer is running — press q again to quit, any other key to stay",
             Style::default()
-                .fg(WARM_YELLOW)
+                .fg(app.theme_colors.warm_yellow)
                 .add_modifier(Modifier::BOLD),
         ))
     } else {
@@ -515,11 +515,11 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             Span::styled(
                 k,
                 Style::default()
-                    .fg(BORDER_GLOW)
+                    .fg(app.theme_colors.border_glow)
                     .add_modifier(Modifier::BOLD),
             )
         };
-        let label = |t: String| Span::styled(t, Style::default().fg(MUTED_TEXT));
+        let label = |t: String| Span::styled(t, Style::default().fg(app.theme_colors.muted_text));
 
         Line::from(vec![
             Span::styled("  ", Style::default()),
@@ -535,7 +535,9 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             label(" help  ".into()),
             Span::styled(
                 "q",
-                Style::default().fg(TOMATO_RED).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(app.theme_colors.tomato_red)
+                    .add_modifier(Modifier::BOLD),
             ),
             label(" quit".into()),
         ])
@@ -544,8 +546,8 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     let footer = Paragraph::new(line).block(
         Block::default()
             .borders(Borders::TOP)
-            .border_style(Style::default().fg(BORDER_DIM))
-            .style(Style::default().bg(DARK_BASE)),
+            .border_style(Style::default().fg(app.theme_colors.border_dim))
+            .style(Style::default().bg(app.theme_colors.dark_base)),
     );
 
     frame.render_widget(footer, area);
@@ -557,20 +559,27 @@ mod tests {
 
     #[test]
     fn tall_terminals_get_the_full_layout_with_mascot() {
-        assert_eq!(layout_mode(80, 45), LayoutMode::Full);
-        assert_eq!(layout_mode(80, 38), LayoutMode::Full);
+        assert_eq!(layout_mode(80, 45, true), LayoutMode::Full);
+        assert_eq!(layout_mode(80, 38, true), LayoutMode::Full);
     }
 
     #[test]
     fn short_terminals_drop_the_mascot() {
-        assert_eq!(layout_mode(80, 37), LayoutMode::Compact);
-        assert_eq!(layout_mode(80, 15), LayoutMode::Compact);
+        assert_eq!(layout_mode(80, 37, true), LayoutMode::Compact);
+        assert_eq!(layout_mode(80, 15, true), LayoutMode::Compact);
     }
 
     #[test]
     fn tiny_terminals_get_the_one_line_mini_layout() {
-        assert_eq!(layout_mode(80, 14), LayoutMode::Mini);
-        assert_eq!(layout_mode(80, 5), LayoutMode::Mini);
+        assert_eq!(layout_mode(80, 14, true), LayoutMode::Mini);
+        assert_eq!(layout_mode(80, 5, true), LayoutMode::Mini);
+    }
+
+    #[test]
+    fn layout_without_mascot_never_uses_full_mode() {
+        assert_eq!(layout_mode(80, 45, false), LayoutMode::Compact);
+        assert_eq!(layout_mode(80, 38, false), LayoutMode::Compact);
+        assert_eq!(layout_mode(80, 10, false), LayoutMode::Mini);
     }
 
     #[test]

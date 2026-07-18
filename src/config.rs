@@ -40,6 +40,18 @@ pub struct Config {
     /// Enable notification sounds (default: false)
     #[serde(default)]
     pub sound: bool,
+
+    /// Show the Domate mascot (default: true)
+    #[serde(default = "default_true")]
+    pub show_mascot: bool,
+
+    /// Theme name ("default", "nord", "dracula", "gruvbox", "monochrome")
+    #[serde(default = "default_theme")]
+    pub theme: String,
+
+    /// Custom colors overrides for expert customization
+    #[serde(default)]
+    pub custom_colors: Option<crate::theme::CustomColors>,
 }
 
 // ── Default value functions ──────────────────────────────────────────
@@ -59,6 +71,9 @@ fn default_long_break_interval() -> u32 {
 fn default_true() -> bool {
     true
 }
+fn default_theme() -> String {
+    "default".to_string()
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -71,6 +86,9 @@ impl Default for Config {
             auto_start_pomodoros: false,
             notifications: true,
             sound: false,
+            show_mascot: true,
+            theme: default_theme(),
+            custom_colors: None,
         }
     }
 }

@@ -7,7 +7,6 @@ use ratatui::{
 };
 
 use crate::app::App;
-use crate::ui::{DARK_BASE, NATURE_GREEN, SOFT_WHITE, TOMATO_RED};
 
 /// Intensity levels for the heatmap cells.
 fn intensity_color(count: u32) -> Color {
@@ -28,7 +27,7 @@ pub fn draw_heatmap(frame: &mut Frame, app: &App, area: Rect) {
         Err(_) => {
             let error_msg = Paragraph::new("Failed to load session history")
                 .alignment(Alignment::Center)
-                .style(Style::default().fg(TOMATO_RED));
+                .style(Style::default().fg(app.theme_colors.tomato_red));
             frame.render_widget(error_msg, area);
             return;
         }
@@ -40,7 +39,9 @@ pub fn draw_heatmap(frame: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "📊 Pomodoro Activity — Last 365 Days",
-        Style::default().fg(SOFT_WHITE).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(app.theme_colors.soft_white)
+            .add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from(""));
 
@@ -99,17 +100,19 @@ pub fn draw_heatmap(frame: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(vec![
         Span::styled(
             format!("  🍅 {} pomodoros", total_pomodoros),
-            Style::default().fg(TOMATO_RED).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(app.theme_colors.tomato_red)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
         Span::styled(
             format!("📅 {} active days", active_days),
-            Style::default().fg(NATURE_GREEN),
+            Style::default().fg(app.theme_colors.nature_green),
         ),
         Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
         Span::styled(
             format!("🔥 {} day streak", max_streak),
-            Style::default().fg(Color::Rgb(243, 156, 18)),
+            Style::default().fg(app.theme_colors.warm_yellow),
         ),
     ]));
 
@@ -119,7 +122,7 @@ pub fn draw_heatmap(frame: &mut Frame, app: &App, area: Rect) {
             .border_style(Style::default().fg(Color::DarkGray))
             .title(" 🍅 Pomodomate Heatmap ")
             .title_alignment(Alignment::Center)
-            .style(Style::default().bg(DARK_BASE)),
+            .style(Style::default().bg(app.theme_colors.dark_base)),
     );
 
     frame.render_widget(heatmap, area);

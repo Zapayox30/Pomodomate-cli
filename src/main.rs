@@ -1,6 +1,7 @@
 mod app;
 mod config;
 mod storage;
+mod theme;
 mod timer;
 mod ui;
 
@@ -50,6 +51,14 @@ struct Cli {
     #[arg(long)]
     mute: bool,
 
+    /// Hide the Domate mascot for this run
+    #[arg(long)]
+    no_mascot: bool,
+
+    /// Theme name, just for this run ("default", "nord", "dracula", "gruvbox", "monochrome")
+    #[arg(long, value_name = "THEME")]
+    theme: Option<String>,
+
     /// Enable Domate mode (local distraction detection) [Phase 3 — not yet available]
     #[arg(long, hide = true)]
     domate: bool,
@@ -96,6 +105,12 @@ fn main() -> Result<()> {
     if cli.mute {
         config.sound = false;
         config.notifications = false;
+    }
+    if cli.no_mascot {
+        config.show_mascot = false;
+    }
+    if let Some(theme) = cli.theme {
+        config.theme = theme;
     }
     config
         .validate()

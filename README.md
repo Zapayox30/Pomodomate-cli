@@ -129,7 +129,17 @@ auto_start_pomodoros = false
 # Notifications
 notifications = true
 sound = false
+
+# Appearance
+show_mascot = true
+theme = "default"
 ```
+
+## 🎨 Themes & Customization
+
+Pomodomate CLI supports a variety of built-in themes (e.g., `nord`, `dracula`, `gruvbox`, `monochrome`) and allows complete visual customization using custom colors.
+
+See [docs/themes.md](docs/themes.md) for details on choosing themes and building custom ones.
 
 ## 🗺️ Roadmap
 
