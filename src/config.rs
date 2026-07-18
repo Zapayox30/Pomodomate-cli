@@ -61,6 +61,13 @@ pub struct Config {
     #[serde(default)]
     pub tags: Vec<String>,
 
+    /// Ambient track looped during work phases.
+    ///
+    /// A bare name like "rain" is looked up in the sounds directory; an
+    /// explicit path is used as-is. Empty means no ambient sound.
+    #[serde(default)]
+    pub ambient_sound: String,
+
     /// Minutes of inactivity before the timer pauses itself (0 disables it).
     ///
     /// Needs a Wayland compositor supporting `ext-idle-notify-v1`; elsewhere
@@ -109,6 +116,7 @@ impl Default for Config {
             custom_colors: None,
             hooks: crate::hooks::Hooks::default(),
             tags: Vec::new(),
+            ambient_sound: String::new(),
             idle_timeout: default_idle_timeout(),
         }
     }

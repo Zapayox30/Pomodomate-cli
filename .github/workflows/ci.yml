@@ -29,6 +29,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test
+      # The audio feature links against ALSA, so it needs the dev headers.
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - run: cargo test --features audio
 
   build:
     name: Build (${{ matrix.target }})

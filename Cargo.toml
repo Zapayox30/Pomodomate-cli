@@ -43,9 +43,17 @@ dirs = "6"
 anyhow = "1"
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+rodio = { version = "0.22", default-features = false, features = ["playback", "mp3", "vorbis", "wav", "flac"], optional = true }
 
 [profile.release]
 strip = true
 lto = true
 codegen-units = 1
 opt-level = "z"
+
+[features]
+default = []
+
+# Ambient sound playback. Off by default because it links against ALSA, which
+# is not available when cross-compiling the aarch64 release binaries.
+audio = ["dep:rodio"]

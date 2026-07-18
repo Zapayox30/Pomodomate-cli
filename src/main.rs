@@ -4,6 +4,7 @@ mod daemon;
 mod engine;
 mod hooks;
 mod idle;
+mod sound;
 mod storage;
 mod theme;
 mod timer;

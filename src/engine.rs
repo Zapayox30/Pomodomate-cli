@@ -28,6 +28,8 @@ pub struct Engine {
     pub paused_by_idle: bool,
     /// When the current phase started, if it is being timed.
     phase_started_at: Option<DateTime<Utc>>,
+    /// Looping background track, active only during running work phases.
+    ambient: crate::sound::Ambient,
 }
 
 /// A point-in-time view of the engine, safe to serialize and send over IPC.
@@ -103,6 +105,30 @@ impl Engine {
             first_session_today,
             paused_by_idle: false,
             phase_started_at: None,
+            ambient: crate::sound::Ambient::new(),
+        }
+    }
+
+    /// Start or stop the ambient track so it matches the timer.
+    ///
+    /// Called after every state change rather than on a timer, and it only
+    /// acts on transitions, so a running track is never restarted.
+    fn sync_ambient(&mut self) {
+        let should_play = self.timer.phase == TimerPhase::Work
+            && self.timer.status == TimerStatus::Running
+            && !self.config.ambient_sound.is_empty();
+
+        if should_play {
+            if !self.ambient.is_playing() {
+                let dir = crate::sound::sounds_dir();
+                if let Some(path) =
+                    crate::sound::resolve(&self.config.ambient_sound, dir.as_deref())
+                {
+                    self.ambient.play(&path);
+                }
+            }
+        } else if self.ambient.is_playing() {
+            self.ambient.stop();
         }
     }
 
@@ -121,6 +147,7 @@ impl Engine {
         if starting {
             self.fire_phase_start();
         }
+        self.sync_ambient();
     }
 
     /// Pause because the user stepped away from the desk.
@@ -131,6 +158,7 @@ impl Engine {
         if self.timer.status == TimerStatus::Running {
             self.timer.status = TimerStatus::Paused;
             self.paused_by_idle = true;
+            self.sync_ambient();
         }
     }
 
@@ -140,6 +168,7 @@ impl Engine {
         if self.timer.status == TimerStatus::Running {
             self.timer.status = TimerStatus::Paused;
             self.paused_by_idle = false;
+            self.sync_ambient();
         }
     }
 
@@ -151,6 +180,7 @@ impl Engine {
             TimerStatus::Idle => self.toggle(),
             _ => {}
         }
+        self.sync_ambient();
     }
 
     /// Reset the current phase back to its full duration.
@@ -158,6 +188,7 @@ impl Engine {
         self.timer.reset();
         self.paused_by_idle = false;
         self.phase_started_at = None;
+        self.sync_ambient();
     }
 
     /// Abandon the current phase and move to the next one.
@@ -173,6 +204,7 @@ impl Engine {
             self.phase_started_at = Some(Utc::now());
             self.fire_phase_start();
         }
+        self.sync_ambient();
         Ok(())
     }
 
@@ -220,6 +252,7 @@ impl Engine {
             self.fire_phase_start();
         }
 
+        self.sync_ambient();
         Ok(())
     }
 

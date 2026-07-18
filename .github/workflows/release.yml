@@ -18,7 +18,12 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
+            features: audio
+            packages: libasound2-dev
           - target: aarch64-unknown-linux-gnu
+            # No ALSA for this architecture on the runner, so the ambient
+            # sound feature is left out of the aarch64 binary.
+            features: ""
             packages: gcc-aarch64-linux-gnu
     env:
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
@@ -32,7 +37,7 @@ jobs:
           key: ${{ matrix.target }}
       - if: matrix.packages
         run: sudo apt-get update && sudo apt-get install -y ${{ matrix.packages }}
-      - run: cargo build --release --target ${{ matrix.target }}
+      - run: cargo build --release --target ${{ matrix.target }} --features "${{ matrix.features }}"
       - name: Package tarball
         run: |
           cd target/${{ matrix.target }}/release
