@@ -192,6 +192,8 @@ fn apply(engine: &mut Engine, command: &str) -> Result<Response> {
             "ok".to_string()
         }
         "quit" => {
+            // The in-flight phase still happened; do not drop it on exit.
+            engine.abandon_phase();
             return Ok(Response {
                 body: "ok".to_string(),
                 shutdown: true,

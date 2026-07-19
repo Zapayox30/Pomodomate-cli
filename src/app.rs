@@ -143,6 +143,8 @@ impl App {
                 if self.engine.timer.status == TimerStatus::Running && !self.quit_pending {
                     self.quit_pending = true;
                 } else {
+                    // Record whatever was worked before leaving.
+                    self.engine.abandon_phase();
                     self.should_quit = true;
                 }
             }

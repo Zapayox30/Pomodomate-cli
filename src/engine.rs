@@ -30,6 +30,11 @@ pub struct Engine {
     phase_started_at: Option<DateTime<Utc>>,
     /// Looping background track, active only during running work phases.
     ambient: crate::sound::Ambient,
+    /// Last non-fatal failure, for the front-end to surface.
+    ///
+    /// Storage problems must not stop the clock, but they must not be
+    /// invisible either.
+    pub last_error: Option<String>,
 }
 
 /// A point-in-time view of the engine, safe to serialize and send over IPC.
@@ -52,6 +57,9 @@ pub struct Status {
     /// True when the pause was caused by the user stepping away.
     #[serde(default)]
     pub idle_paused: bool,
+    /// Last non-fatal failure, if any — typically a history write that failed.
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 impl Status {
@@ -106,6 +114,7 @@ impl Engine {
             paused_by_idle: false,
             phase_started_at: None,
             ambient: crate::sound::Ambient::new(),
+            last_error: None,
         }
     }
 
@@ -178,13 +187,18 @@ impl Engine {
         match self.timer.status {
             TimerStatus::Paused => self.timer.status = TimerStatus::Running,
             TimerStatus::Idle => self.toggle(),
-            _ => {}
+            // A phase that finished but never advanced — a storage failure
+            // used to leave the timer parked here with no way out but reset.
+            TimerStatus::Completed => self.toggle(),
+            TimerStatus::Running => {}
         }
         self.sync_ambient();
     }
 
     /// Reset the current phase back to its full duration.
     pub fn reset(&mut self) {
+        // Whatever was worked before the reset still happened.
+        self.abandon_phase();
         self.timer.reset();
         self.paused_by_idle = false;
         self.phase_started_at = None;
@@ -194,7 +208,9 @@ impl Engine {
     /// Abandon the current phase and move to the next one.
     pub fn skip(&mut self) -> Result<()> {
         if let Some(started) = self.phase_started_at.take() {
-            self.save_session(started, false)?;
+            if let Err(error) = self.save_session(started, false) {
+                self.last_error = Some(format!("could not save session: {error:#}"));
+            }
         }
         // The phase ends here even though it was not completed, so teardown
         // hooks still get their turn.
@@ -226,7 +242,11 @@ impl Engine {
     /// Everything that must happen when a phase runs out.
     fn on_phase_complete(&mut self) -> Result<()> {
         if let Some(started) = self.phase_started_at.take() {
-            self.save_session(started, true)?;
+            // A storage failure must never strand the timer in Completed: the
+            // phase is over either way, so record the problem and carry on.
+            if let Err(error) = self.save_session(started, true) {
+                self.last_error = Some(format!("could not save session: {error:#}"));
+            }
         }
 
         if self.timer.phase == TimerPhase::Work {
@@ -275,6 +295,7 @@ impl Engine {
             pomodoros: self.timer.pomodoros_completed,
             time: self.timer.remaining_display(),
             idle_paused: self.paused_by_idle,
+            error: self.last_error.clone(),
         }
     }
 
@@ -300,6 +321,17 @@ impl Engine {
         }
     }
 
+    /// Seconds the current phase has actually been running.
+    ///
+    /// Derived from the clock rather than wall time, so paused stretches are
+    /// excluded automatically.
+    fn focus_seconds(&self) -> u64 {
+        self.timer
+            .total_duration
+            .saturating_sub(self.timer.remaining)
+            .as_secs()
+    }
+
     /// Append a session record to local history.
     fn save_session(&self, started: DateTime<Utc>, completed: bool) -> Result<()> {
         let session = Session::new(
@@ -308,8 +340,26 @@ impl Engine {
             phase_name(self.timer.phase),
             completed,
             self.config.tags.clone(),
+            self.focus_seconds(),
         );
         self.storage.save_session(&session)
+    }
+
+    /// Record the phase in progress, if any, as an unfinished session.
+    ///
+    /// Used when the user resets or quits: the work happened, so it belongs in
+    /// the history even though the phase never completed.
+    pub fn abandon_phase(&mut self) {
+        let Some(started) = self.phase_started_at.take() else {
+            return;
+        };
+        // Nothing ran, nothing to record.
+        if self.focus_seconds() == 0 {
+            return;
+        }
+        if let Err(error) = self.save_session(started, false) {
+            self.last_error = Some(format!("could not save session: {error:#}"));
+        }
     }
 
     /// Describe the current phase for a hook invocation.
@@ -351,8 +401,10 @@ impl Engine {
             TimerPhase::Work => (
                 "🍅 Pomodoro Complete!",
                 format!(
+                    // The counter is bumped by the transition that follows
+                    // this notification, so the one just finished is +1.
                     "Great focus session! #{} done. Time for a break.",
-                    self.timer.pomodoros_completed
+                    self.timer.pomodoros_completed + 1
                 ),
             ),
             TimerPhase::ShortBreak => (
@@ -544,6 +596,72 @@ mod tests {
 
         assert_eq!(e.status().status, "paused");
         assert!(!e.status().idle_paused);
+    }
+
+    #[test]
+    fn resetting_records_the_work_already_done() {
+        let mut e = engine();
+        e.toggle();
+        // Two minutes in.
+        e.timer.remaining = e.timer.total_duration - std::time::Duration::from_secs(120);
+        e.reset();
+
+        let sessions = e.storage.load_sessions().unwrap();
+        assert_eq!(sessions.len(), 1, "a reset must not discard real work");
+        assert!(!sessions[0].completed);
+        assert_eq!(sessions[0].focus_seconds, 120);
+    }
+
+    #[test]
+    fn resetting_immediately_records_nothing() {
+        let mut e = engine();
+        e.toggle();
+        e.reset();
+
+        assert!(
+            e.storage.load_sessions().unwrap().is_empty(),
+            "no time elapsed, so there is nothing worth recording"
+        );
+    }
+
+    #[test]
+    fn focus_seconds_exclude_paused_time() {
+        let mut e = engine();
+        e.toggle();
+        e.timer.remaining = e.timer.total_duration - std::time::Duration::from_secs(300);
+        e.pause();
+        // Time spent paused does not move the clock, so it cannot inflate the
+        // recorded focus time.
+        e.skip().unwrap();
+
+        let sessions = e.storage.load_sessions().unwrap();
+        assert_eq!(sessions[0].focus_seconds, 300);
+    }
+
+    #[test]
+    fn a_completed_phase_records_its_full_length() {
+        let mut e = engine();
+        e.toggle();
+        complete_phase(&mut e);
+
+        let sessions = e.storage.load_sessions().unwrap();
+        assert_eq!(sessions[0].focus_seconds, 25 * 60);
+        assert!(sessions[0].completed);
+    }
+
+    #[test]
+    fn resume_recovers_a_phase_stuck_in_completed() {
+        let mut e = engine();
+        e.toggle();
+        // The state a storage failure used to strand the timer in.
+        e.timer.status = TimerStatus::Completed;
+        e.resume();
+
+        assert_ne!(
+            e.status().status,
+            "completed",
+            "resume must be able to unstick a completed phase"
+        );
     }
 
     #[test]

@@ -32,6 +32,14 @@ pub struct Session {
     /// Defaults to empty so history written before tags existed still loads.
     #[serde(default)]
     pub tags: Vec<String>,
+
+    /// Seconds actually spent running this phase, excluding paused time.
+    ///
+    /// `duration_minutes` records what the phase was *meant* to last; this
+    /// records what really happened, which is what a skipped or abandoned
+    /// phase needs in order to be honest.
+    #[serde(default)]
+    pub focus_seconds: u64,
 }
 
 impl Session {
@@ -42,6 +50,7 @@ impl Session {
         phase: &str,
         completed: bool,
         tags: Vec<String>,
+        focus_seconds: u64,
     ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
@@ -52,6 +61,7 @@ impl Session {
             completed,
             synced: false,
             tags,
+            focus_seconds,
         }
     }
 
@@ -143,13 +153,34 @@ impl Storage {
             if line.trim().is_empty() {
                 continue;
             }
-            let session: Session = serde_json::from_str(line).with_context(|| {
-                format!("Failed to parse a session in {}", self.data_path.display())
-            })?;
-            sessions.push(session);
+            // A torn write or hand-edit damages one line; the whole history
+            // must stay readable. Skipping beats failing, because the
+            // alternative is a user who can never see their stats again.
+            match serde_json::from_str(line) {
+                Ok(session) => sessions.push(session),
+                Err(_) => continue,
+            }
         }
 
         Ok(sessions)
+    }
+
+    /// Number of unreadable lines in the history file.
+    ///
+    /// Lets callers surface "3 damaged records were skipped" instead of
+    /// silently under-reporting.
+    pub fn damaged_lines(&self) -> Result<usize> {
+        if !self.data_path.exists() {
+            return Ok(0);
+        }
+        let content = fs::read_to_string(&self.data_path)
+            .with_context(|| format!("Failed to read {}", self.data_path.display()))?;
+
+        Ok(content
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .filter(|line| serde_json::from_str::<Session>(line).is_err())
+            .count())
     }
 
     /// One-time migration from the old JSON-array format to JSON Lines.
@@ -162,31 +193,65 @@ impl Storage {
         let content = fs::read_to_string(&self.legacy_path)
             .with_context(|| format!("Failed to read {}", self.legacy_path.display()))?;
 
-        let mut lines = String::new();
-        if !content.trim().is_empty() {
-            let legacy: Vec<Session> = serde_json::from_str(&content)
-                .with_context(|| format!("Failed to parse {}", self.legacy_path.display()))?;
-            for session in &legacy {
-                lines.push_str(
-                    &serde_json::to_string(session).context("Failed to serialize session")?,
-                );
-                lines.push('\n');
-            }
-        }
+        let legacy: Vec<Session> = if content.trim().is_empty() {
+            Vec::new()
+        } else {
+            serde_json::from_str(&content)
+                .with_context(|| format!("Failed to parse {}", self.legacy_path.display()))?
+        };
 
-        // Legacy sessions are older than anything already appended to the
-        // JSONL file, so they go first.
+        // Anything already in the JSONL file, so a migration interrupted
+        // before the legacy file was renamed can be replayed without
+        // duplicating records.
+        let existing = self.read_jsonl()?;
+        let already_migrated: std::collections::HashSet<&str> =
+            existing.iter().map(|s| s.id.as_str()).collect();
+
+        let mut lines = String::new();
+        // Legacy sessions predate everything appended to the JSONL file, so
+        // they go first.
+        for session in legacy
+            .iter()
+            .filter(|s| !already_migrated.contains(s.id.as_str()))
+        {
+            lines.push_str(&serde_json::to_string(session).context("Failed to serialize session")?);
+            lines.push('\n');
+        }
         if self.data_path.exists() {
             lines.push_str(&fs::read_to_string(&self.data_path)?);
         }
-        fs::write(&self.data_path, lines)
-            .with_context(|| format!("Failed to write {}", self.data_path.display()))?;
+
+        // Write through a temporary file and rename into place: a truncating
+        // write would lose the whole history if the process died mid-write.
+        let temp_path = self.data_path.with_extension("jsonl.tmp");
+        fs::write(&temp_path, lines)
+            .with_context(|| format!("Failed to write {}", temp_path.display()))?;
+        fs::rename(&temp_path, &self.data_path)
+            .with_context(|| format!("Failed to replace {}", self.data_path.display()))?;
 
         let backup = self.legacy_path.with_extension("json.bak");
         fs::rename(&self.legacy_path, &backup)
             .with_context(|| format!("Failed to back up {}", self.legacy_path.display()))?;
 
         Ok(())
+    }
+
+    /// Parse the JSONL file without attempting a migration first.
+    ///
+    /// Separate from [`Storage::load_sessions`] so the migration can inspect
+    /// current contents without recursing into itself.
+    fn read_jsonl(&self) -> Result<Vec<Session>> {
+        if !self.data_path.exists() {
+            return Ok(Vec::new());
+        }
+        let content = fs::read_to_string(&self.data_path)
+            .with_context(|| format!("Failed to read {}", self.data_path.display()))?;
+
+        Ok(content
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect())
     }
 
     /// Get sessions within a date range (for heatmap).
@@ -209,13 +274,21 @@ impl Storage {
 
     /// Same as [`Storage::daily_counts`], but counting only sessions carrying
     /// `tag` when one is given.
+    ///
+    /// Days are the user's *local* calendar days. Sessions are stored as UTC
+    /// instants, which is right, but grouping them by UTC date would move the
+    /// day boundary away from local midnight — in UTC-5 the day would roll
+    /// over at 19:00, splitting an evening's work across two days and
+    /// breaking streaks.
     pub fn daily_counts_tagged(
         &self,
         days: u32,
         tag: Option<&str>,
     ) -> Result<Vec<(chrono::NaiveDate, u32)>> {
         let now = Utc::now();
-        let from = now - chrono::Duration::days(days as i64);
+        // Reach back an extra day: a local day can start up to 14 hours
+        // before the same UTC day.
+        let from = now - chrono::Duration::days(days as i64 + 1);
         let sessions = self.get_sessions_in_range(from, now)?;
 
         let mut counts: std::collections::HashMap<chrono::NaiveDate, u32> =
@@ -224,15 +297,21 @@ impl Storage {
         for session in sessions {
             let matches_tag = tag.is_none_or(|t| session.has_tag(t));
             if session.phase == "work" && session.completed && matches_tag {
-                let date = session.started_at.date_naive();
+                let date = local_date(session.started_at);
                 *counts.entry(date).or_insert(0) += 1;
             }
         }
 
-        // Build a full list of days with counts
+        // Build a full list of days with counts. Stepping back over calendar
+        // dates rather than subtracting 24-hour spans keeps the sequence
+        // correct across daylight-saving changes, where a local day can be 23
+        // or 25 hours long.
+        let today = local_date(now);
         let mut result = Vec::new();
         for i in 0..days {
-            let date = (now - chrono::Duration::days(i as i64)).date_naive();
+            let Some(date) = today.checked_sub_days(chrono::Days::new(i as u64)) else {
+                break;
+            };
             let count = counts.get(&date).copied().unwrap_or(0);
             result.push((date, count));
         }
@@ -240,6 +319,14 @@ impl Storage {
 
         Ok(result)
     }
+}
+
+/// The local calendar date an instant falls on.
+///
+/// Sessions are stored as UTC instants — the correct way to record a moment —
+/// but "which day did I work on" is a question about the user's wall clock.
+pub fn local_date(instant: DateTime<Utc>) -> chrono::NaiveDate {
+    instant.with_timezone(&chrono::Local).date_naive()
 }
 
 /// Aggregated productivity stats (used by `pomodomate stats` and the TUI).
@@ -356,12 +443,114 @@ mod tests {
     }
 
     fn session(phase: &str, completed: bool) -> Session {
-        Session::new(Utc::now(), 25, phase, completed, Vec::new())
+        Session::new(Utc::now(), 25, phase, completed, Vec::new(), 25 * 60)
     }
 
     fn tagged_session(phase: &str, completed: bool, tags: &[&str]) -> Session {
         let tags = tags.iter().map(|t| t.to_string()).collect();
-        Session::new(Utc::now(), 25, phase, completed, tags)
+        Session::new(Utc::now(), 25, phase, completed, tags, 25 * 60)
+    }
+
+    #[test]
+    fn local_date_follows_the_system_timezone_not_utc() {
+        use chrono::{Offset, TimeZone};
+
+        // 02:30 UTC: still the previous day anywhere west of UTC-3.
+        let instant = Utc.with_ymd_and_hms(2026, 7, 19, 2, 30, 0).unwrap();
+        let offset = chrono::Local
+            .offset_from_utc_datetime(&instant.naive_utc())
+            .fix()
+            .local_minus_utc();
+
+        let expected = (instant + chrono::Duration::seconds(offset as i64)).date_naive();
+        assert_eq!(local_date(instant), expected);
+
+        if offset <= -3 * 3600 {
+            assert_ne!(
+                local_date(instant),
+                instant.date_naive(),
+                "west of UTC-3, 02:30 UTC belongs to the previous local day"
+            );
+        }
+    }
+
+    #[test]
+    fn a_session_recorded_now_counts_towards_today() {
+        let (storage, _dir) = temp_storage();
+        storage.save_session(&session("work", true)).unwrap();
+
+        let counts = storage.daily_counts(7).unwrap();
+        let (last_day, count) = counts.last().copied().unwrap();
+
+        assert_eq!(
+            last_day,
+            chrono::Local::now().date_naive(),
+            "the newest bucket must be the user's local today"
+        );
+        assert_eq!(count, 1, "a pomodoro finished now belongs to today");
+    }
+
+    #[test]
+    fn daily_counts_walks_back_over_calendar_days() {
+        let (storage, _dir) = temp_storage();
+        let counts = storage.daily_counts(5).unwrap();
+
+        assert_eq!(counts.len(), 5);
+        // Consecutive, ascending, exactly one calendar day apart — the
+        // property that subtracting 24-hour spans breaks across DST.
+        for pair in counts.windows(2) {
+            assert_eq!(
+                pair[1].0.signed_duration_since(pair[0].0).num_days(),
+                1,
+                "days must be consecutive: {:?} then {:?}",
+                pair[0].0,
+                pair[1].0
+            );
+        }
+    }
+
+    #[test]
+    fn a_damaged_line_does_not_hide_the_rest_of_the_history() {
+        let (storage, dir) = temp_storage();
+        let good = serde_json::to_string(&session("work", true)).unwrap();
+        let also_good = serde_json::to_string(&session("work", true)).unwrap();
+        // Middle line truncated, as a torn write would leave it.
+        let torn = &good[..good.len() / 2];
+        fs::write(
+            dir.join("sessions.jsonl"),
+            format!("{good}\n{torn}\n{also_good}\n"),
+        )
+        .unwrap();
+
+        let loaded = storage.load_sessions().unwrap();
+        assert_eq!(loaded.len(), 2, "readable sessions must survive");
+        assert_eq!(storage.damaged_lines().unwrap(), 1);
+    }
+
+    #[test]
+    fn migration_replayed_after_a_crash_does_not_duplicate() {
+        let dir = std::env::temp_dir()
+            .join("pomodomate-test")
+            .join(Uuid::new_v4().to_string());
+        fs::create_dir_all(&dir).unwrap();
+
+        let legacy = vec![session("work", true), session("work", true)];
+        let legacy_json = serde_json::to_string_pretty(&legacy).unwrap();
+        fs::write(dir.join("sessions.json"), &legacy_json).unwrap();
+
+        let storage = Storage::at_dir(dir.clone());
+        assert_eq!(storage.load_sessions().unwrap().len(), 2);
+
+        // Simulate dying after the history was rewritten but before the
+        // legacy file was renamed: put it back and migrate again.
+        fs::write(dir.join("sessions.json"), &legacy_json).unwrap();
+        let loaded = storage.load_sessions().unwrap();
+
+        assert_eq!(
+            loaded.len(),
+            2,
+            "replaying an interrupted migration must not duplicate records"
+        );
     }
 
     #[test]
@@ -507,6 +696,7 @@ mod tests {
             "work",
             true,
             Vec::new(),
+            25 * 60,
         )
     }
 
@@ -564,7 +754,9 @@ mod tests {
         storage.save_session(&session("short_break", true)).unwrap(); // break
 
         let counts = storage.daily_counts(1).unwrap();
-        let today = Utc::now().date_naive();
+        // Local, not UTC: past 19:00 in UTC-5 the UTC date is already
+        // tomorrow and would not appear in the user's list of days at all.
+        let today = chrono::Local::now().date_naive();
         let today_count = counts.iter().find(|(d, _)| *d == today).unwrap().1;
         assert_eq!(today_count, 2);
     }

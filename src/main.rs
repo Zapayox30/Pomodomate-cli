@@ -251,6 +251,14 @@ fn print_stats(json: bool, tag: Option<&str>, by_tag: bool) -> Result<()> {
         println!("  Active days:     {:>4}", stats.active_days);
         println!("  Current streak:  {:>4} days 🔥", stats.current_streak);
         println!("  Best streak:     {:>4} days", stats.best_streak);
+
+        // Unreadable records are skipped rather than failing the whole read,
+        // but the user deserves to know their totals are incomplete.
+        let damaged = storage.damaged_lines()?;
+        if damaged > 0 {
+            println!();
+            println!("  ⚠ {damaged} unreadable record(s) in your history were skipped.");
+        }
     }
 
     Ok(())

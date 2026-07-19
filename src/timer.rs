@@ -182,13 +182,24 @@ impl Timer {
     /// Add or subtract whole minutes from the current phase, keeping at
     /// least one minute on the clock and progress within [0, 1].
     pub fn adjust(&mut self, minutes: i64) {
-        let delta = Duration::from_secs(60);
+        // Cap the step so a stray large value cannot overflow the clock.
+        const MAX_STEP_MINUTES: u64 = 24 * 60;
+        let magnitude = minutes.unsigned_abs().min(MAX_STEP_MINUTES);
+        let delta = Duration::from_secs(60 * magnitude);
+        let floor = Duration::from_secs(60);
+
         if minutes > 0 {
             self.remaining += delta;
             self.total_duration += delta;
-        } else if minutes < 0 && self.remaining > delta {
-            self.remaining = (self.remaining - delta).max(delta);
+        } else if minutes < 0 {
+            // Never below one minute, and shrink the total alongside so the
+            // progress bar does not jump forward for time never worked.
+            let room = self.remaining.saturating_sub(floor);
+            let delta = delta.min(room);
+            self.remaining -= delta;
+            self.total_duration = self.total_duration.saturating_sub(delta);
         }
+
         if self.total_duration < self.remaining {
             self.total_duration = self.remaining;
         }
@@ -382,6 +393,41 @@ mod tests {
 
         t.adjust(-1);
         assert_eq!(t.remaining, Duration::from_secs(60), "already at the floor");
+    }
+
+    #[test]
+    fn adjust_honors_the_magnitude_not_just_the_sign() {
+        let mut t = timer();
+        t.adjust(10);
+        assert_eq!(t.remaining, Duration::from_secs(35 * 60));
+        t.adjust(-5);
+        assert_eq!(t.remaining, Duration::from_secs(30 * 60));
+    }
+
+    #[test]
+    fn subtracting_shrinks_the_total_so_progress_does_not_jump() {
+        let mut t = timer();
+        assert_eq!(t.progress(), 0.0);
+        t.adjust(-1);
+        assert_eq!(
+            t.total_duration,
+            Duration::from_secs(24 * 60),
+            "the phase is now shorter, not partly done"
+        );
+        assert_eq!(
+            t.progress(),
+            0.0,
+            "no work happened, so progress stays at 0"
+        );
+    }
+
+    #[test]
+    fn a_huge_adjustment_cannot_overflow_the_clock() {
+        let mut t = timer();
+        t.adjust(i64::MAX);
+        assert!(t.remaining <= Duration::from_secs(25 * 60 + 24 * 60 * 60));
+        t.adjust(i64::MIN);
+        assert!(t.remaining >= Duration::from_secs(60));
     }
 
     #[test]

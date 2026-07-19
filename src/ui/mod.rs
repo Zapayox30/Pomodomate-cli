@@ -466,6 +466,14 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
                 .fg(app.theme_colors.warm_yellow)
                 .add_modifier(Modifier::BOLD),
         ))
+    } else if let Some(error) = &app.engine.last_error {
+        // A failed history write must not pass unnoticed.
+        Line::from(Span::styled(
+            format!("  ⚠ {error}"),
+            Style::default()
+                .fg(app.theme_colors.tomato_red)
+                .add_modifier(Modifier::BOLD),
+        ))
     } else if app.engine.paused_by_idle {
         // Explain the stopped clock instead of leaving them wondering.
         Line::from(Span::styled(

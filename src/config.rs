@@ -181,14 +181,43 @@ impl Config {
     }
 
     /// Validate config values are sane.
+    ///
+    /// Upper bounds matter as much as lower ones: durations are multiplied by
+    /// 60 to build the clock, which overflows on absurd values, and a huge
+    /// long_break_interval draws one marker per pomodoro every frame.
     pub(crate) fn validate(&self) -> Result<()> {
-        anyhow::ensure!(self.work_duration > 0, "work_duration must be > 0");
-        anyhow::ensure!(self.short_break > 0, "short_break must be > 0");
-        anyhow::ensure!(self.long_break > 0, "long_break must be > 0");
+        /// A day, in minutes — nobody needs a longer single phase.
+        const MAX_MINUTES: u64 = 24 * 60;
+        /// Beyond this the pomodoro counter no longer fits on screen anyway.
+        const MAX_INTERVAL: u32 = 100;
+
+        for (name, value) in [
+            ("work_duration", self.work_duration),
+            ("short_break", self.short_break),
+            ("long_break", self.long_break),
+        ] {
+            anyhow::ensure!(value > 0, "{name} must be greater than 0");
+            anyhow::ensure!(
+                value <= MAX_MINUTES,
+                "{name} must be at most {MAX_MINUTES} minutes (24 hours), got {value}"
+            );
+        }
+
         anyhow::ensure!(
             self.long_break_interval > 0,
-            "long_break_interval must be > 0"
+            "long_break_interval must be greater than 0"
         );
+        anyhow::ensure!(
+            self.long_break_interval <= MAX_INTERVAL,
+            "long_break_interval must be at most {MAX_INTERVAL}, got {}",
+            self.long_break_interval
+        );
+        anyhow::ensure!(
+            self.idle_timeout <= MAX_MINUTES,
+            "idle_timeout must be at most {MAX_MINUTES} minutes (24 hours), got {}",
+            self.idle_timeout
+        );
+
         Ok(())
     }
 }
