@@ -1,6 +1,6 @@
 # Maintainer: Zapayox30 <zapayox30@gmail.com>
 pkgname=pomodomate-cli
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="A beautiful Pomodoro timer for the terminal, featuring Domate, your animated tomato companion"
 arch=('x86_64' 'aarch64')
