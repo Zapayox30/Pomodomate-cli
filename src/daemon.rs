@@ -1,6 +1,9 @@
-use std::io::{BufRead, BufReader, Write};
+use std::fs;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -24,6 +27,15 @@ pub const COMMANDS: &[&str] = &[
 /// from us, with an explanation, rather than from `bind` as `SUN_LEN`.
 const MAX_SOCKET_PATH: usize = 103;
 
+/// Longest command we will read from a client.
+///
+/// The longest valid command is six bytes; without a cap, a client that never
+/// sends a newline grows the buffer until the daemon is OOM-killed.
+const MAX_COMMAND_BYTES: u64 = 1024;
+
+/// How many connections may be in flight at once.
+const MAX_CONCURRENT_CLIENTS: usize = 32;
+
 /// Path of the control socket.
 ///
 /// Lives in the user's runtime directory so it is per-user, cleaned up by the
@@ -37,8 +49,82 @@ pub fn socket_path() -> PathBuf {
     if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
         return PathBuf::from(dir).join("pomodomate.sock");
     }
+    // No runtime dir: fall back to a private directory of our own under the
+    // temp dir. The socket must not sit directly in a world-writable place,
+    // where another user could pre-create the path and either block us or
+    // impersonate the daemon.
     let uid = unsafe { libc_getuid() };
-    std::env::temp_dir().join(format!("pomodomate-{uid}.sock"))
+    std::env::temp_dir()
+        .join(format!("pomodomate-{uid}"))
+        .join("pomodomate.sock")
+}
+
+/// Make sure the socket's parent directory exists and only we can enter it.
+///
+/// Refuses to continue if the directory exists but belongs to someone else or
+/// is open to other users — that is the shape of a squatting attempt.
+fn prepare_socket_dir(path: &Path) -> Result<()> {
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    if parent.as_os_str().is_empty() {
+        return Ok(());
+    }
+
+    if !parent.exists() {
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(parent)
+            .with_context(|| format!("Failed to create {}", parent.display()))?;
+        return Ok(());
+    }
+
+    let meta =
+        fs::metadata(parent).with_context(|| format!("Failed to inspect {}", parent.display()))?;
+    anyhow::ensure!(
+        meta.is_dir(),
+        "{} exists but is not a directory",
+        parent.display()
+    );
+
+    // Only enforce ownership on directories we created; a user-chosen
+    // XDG_RUNTIME_DIR or POMODOMATE_SOCKET location is their business.
+    let ours = parent
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("pomodomate-"));
+    if ours {
+        let uid = unsafe { libc_getuid() };
+        anyhow::ensure!(
+            meta.uid() == uid,
+            "{} is owned by uid {} rather than {uid} — refusing to use it",
+            parent.display(),
+            meta.uid()
+        );
+        if meta.mode() & 0o077 != 0 {
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+                .with_context(|| format!("Failed to restrict {}", parent.display()))?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Remove a socket left behind by a dead daemon.
+///
+/// Only unlinks actual sockets: pointing `POMODOMATE_SOCKET` at a regular file
+/// by mistake must never destroy it.
+fn remove_stale_socket(path: &Path) -> Result<()> {
+    let meta = fs::symlink_metadata(path)
+        .with_context(|| format!("Failed to inspect {}", path.display()))?;
+    anyhow::ensure!(
+        meta.file_type().is_socket(),
+        "{} exists and is not a socket — refusing to delete it",
+        path.display()
+    );
+    fs::remove_file(path)
+        .with_context(|| format!("Failed to clear stale socket {}", path.display()))
 }
 
 /// Reject an over-long socket path before the kernel does, with advice the
@@ -74,6 +160,7 @@ fn daemon_is_live(path: &Path) -> bool {
 pub fn serve(config: Config) -> Result<()> {
     let path = socket_path();
     check_socket_path(&path)?;
+    prepare_socket_dir(&path)?;
 
     if path.exists() {
         if daemon_is_live(&path) {
@@ -84,12 +171,16 @@ pub fn serve(config: Config) -> Result<()> {
         }
         // Left behind by a crash or a kill -9: nothing is listening, so the
         // socket file is safe to replace.
-        std::fs::remove_file(&path)
-            .with_context(|| format!("Failed to clear stale socket {}", path.display()))?;
+        remove_stale_socket(&path)?;
     }
 
     let listener = UnixListener::bind(&path)
         .with_context(|| format!("Failed to bind socket {}", path.display()))?;
+
+    // Do not inherit the process umask: the socket grants full control of the
+    // timer and can fire the user's hooks, so it is owner-only regardless.
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("Failed to restrict {}", path.display()))?;
 
     let idle_timeout = Duration::from_secs(config.idle_timeout * 60);
     let engine = Arc::new(Mutex::new(Engine::new(config)?));
@@ -118,22 +209,85 @@ pub fn serve(config: Config) -> Result<()> {
 
     println!("🍅 Pomodomate daemon listening on {}", path.display());
 
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let clients = Arc::new(AtomicUsize::new(0));
+
+    // Terminating politely must not cost the user their in-flight pomodoro,
+    // and must give teardown hooks (do-not-disturb, music) their turn.
+    install_signal_handler(Arc::clone(&shutdown), path.clone())?;
+
     for stream in listener.incoming() {
+        if shutdown.load(Ordering::SeqCst) {
+            break;
+        }
+
         let stream = match stream {
             Ok(stream) => stream,
             // One bad connection should never take the daemon down.
             Err(_) => continue,
         };
 
-        match handle_client(stream, &engine) {
-            Ok(true) => break, // client asked us to quit
-            Ok(false) => {}
-            Err(_) => continue,
+        // Each connection gets its own thread, so a slow or stalled client
+        // cannot keep everyone else waiting behind it.
+        if clients.load(Ordering::SeqCst) >= MAX_CONCURRENT_CLIENTS {
+            // Refuse rather than queue: unbounded threads is how a local
+            // denial of service starts.
+            continue;
         }
+        clients.fetch_add(1, Ordering::SeqCst);
+
+        let engine = Arc::clone(&engine);
+        let shutdown = Arc::clone(&shutdown);
+        let clients_guard = Arc::clone(&clients);
+        let wake_path = path.clone();
+        std::thread::spawn(move || {
+            if let Ok(true) = handle_client(stream, &engine) {
+                shutdown.store(true, Ordering::SeqCst);
+                // Unblock the accept loop so it notices the flag.
+                let _ = UnixStream::connect(&wake_path);
+            }
+            clients_guard.fetch_sub(1, Ordering::SeqCst);
+        });
     }
 
-    let _ = std::fs::remove_file(&path);
+    shutdown_engine(&engine);
+    let _ = fs::remove_file(&path);
     println!("🍅 Pomodomate daemon stopped.");
+    Ok(())
+}
+
+/// Record the in-flight phase and run teardown hooks before exiting.
+fn shutdown_engine(engine: &Arc<Mutex<Engine>>) {
+    let mut engine = lock(engine);
+    engine.shut_down();
+}
+
+/// Take the engine lock, recovering from a poisoned mutex.
+///
+/// A panic elsewhere must not turn the daemon into a process that answers
+/// nothing forever; the engine is plain data, so the state is still usable.
+fn lock(engine: &Arc<Mutex<Engine>>) -> std::sync::MutexGuard<'_, Engine> {
+    engine
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Exit cleanly on SIGINT/SIGTERM instead of dropping the session on the floor.
+fn install_signal_handler(shutdown: Arc<AtomicBool>, path: PathBuf) -> Result<()> {
+    let mut signals = signal_hook::iterator::Signals::new([
+        signal_hook::consts::SIGINT,
+        signal_hook::consts::SIGTERM,
+    ])
+    .context("Failed to install signal handler")?;
+
+    std::thread::spawn(move || {
+        if signals.forever().next().is_some() {
+            shutdown.store(true, Ordering::SeqCst);
+            // Wake the accept loop so the normal shutdown path runs.
+            let _ = UnixStream::connect(&path);
+        }
+    });
+
     Ok(())
 }
 
@@ -142,17 +296,16 @@ pub fn serve(config: Config) -> Result<()> {
 fn handle_client(stream: UnixStream, engine: &Arc<Mutex<Engine>>) -> Result<bool> {
     // A client that connects and says nothing must not wedge the daemon.
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
     let mut writer = stream.try_clone()?;
-    let mut reader = BufReader::new(stream);
+    let mut reader = BufReader::new(stream).take(MAX_COMMAND_BYTES);
 
     let mut line = String::new();
     reader.read_line(&mut line)?;
     let command = line.trim();
 
     let response = {
-        let mut engine = engine
-            .lock()
-            .map_err(|_| anyhow::anyhow!("engine lock poisoned"))?;
+        let mut engine = lock(engine);
         apply(&mut engine, command)?
     };
 
@@ -192,8 +345,8 @@ fn apply(engine: &mut Engine, command: &str) -> Result<Response> {
             "ok".to_string()
         }
         "quit" => {
-            // The in-flight phase still happened; do not drop it on exit.
-            engine.abandon_phase();
+            // The in-flight phase still happened, and teardown hooks must run.
+            engine.shut_down();
             return Ok(Response {
                 body: "ok".to_string(),
                 shutdown: true,
@@ -230,10 +383,26 @@ pub fn request(command: &str) -> Result<String> {
 }
 
 /// Ask the daemon for its current state.
+///
+/// The reply is sanitized before it reaches the caller: a status line usually
+/// ends up echoed to a terminal or a status bar, and a rogue process bound to
+/// the socket could otherwise smuggle escape sequences through the text
+/// fields.
 pub fn query_status() -> Result<Status> {
     let raw = request("status")?;
-    serde_json::from_str(&raw)
-        .with_context(|| format!("daemon returned an unexpected status reply: {raw}"))
+    let mut status: Status = serde_json::from_str(&raw)
+        .with_context(|| format!("daemon returned an unexpected status reply: {raw}"))?;
+
+    status.phase = sanitize(&status.phase);
+    status.status = sanitize(&status.status);
+    status.time = sanitize(&status.time);
+    status.error = status.error.as_deref().map(sanitize);
+    Ok(status)
+}
+
+/// Drop control characters, which is what an escape-sequence injection needs.
+fn sanitize(text: &str) -> String {
+    text.chars().filter(|c| !c.is_control()).collect()
 }
 
 #[cfg(test)]
@@ -337,6 +506,68 @@ mod tests {
     #[test]
     fn socket_paths_within_the_limit_are_accepted() {
         assert!(check_socket_path(&PathBuf::from("/run/user/1000/pomodomate.sock")).is_ok());
+    }
+
+    #[test]
+    fn sanitize_strips_terminal_escape_sequences() {
+        // A rogue process bound to the socket must not be able to smuggle
+        // escapes into a terminal or a status bar through the status text.
+        let hostile = "\u{1b}]0;PWNED\u{7}work\u{1b}[31m";
+        let clean = sanitize(hostile);
+        assert!(!clean.contains('\u{1b}'), "escape survived: {clean:?}");
+        assert!(!clean.chars().any(char::is_control));
+        assert!(clean.contains("work"), "readable text should survive");
+    }
+
+    #[test]
+    fn sanitize_leaves_ordinary_text_alone() {
+        assert_eq!(sanitize("short_break"), "short_break");
+        assert_eq!(sanitize("04:59"), "04:59");
+    }
+
+    #[test]
+    fn a_regular_file_is_never_deleted_as_a_stale_socket() {
+        let path = std::env::temp_dir().join(format!("pomodomate-precious-{}", Uuid::new_v4()));
+        std::fs::write(&path, b"important").unwrap();
+
+        let err = remove_stale_socket(&path).unwrap_err().to_string();
+        assert!(err.contains("not a socket"), "got: {err}");
+        assert!(path.exists(), "the file must survive");
+        assert_eq!(std::fs::read(&path).unwrap(), b"important");
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn the_temp_fallback_uses_a_private_directory() {
+        // SAFETY: single-threaded test; both variables are restored below.
+        let runtime = std::env::var_os("XDG_RUNTIME_DIR");
+        let socket = std::env::var_os("POMODOMATE_SOCKET");
+        unsafe {
+            std::env::remove_var("XDG_RUNTIME_DIR");
+            std::env::remove_var("POMODOMATE_SOCKET");
+        }
+
+        let path = socket_path();
+        let parent = path.parent().unwrap();
+        assert!(
+            parent
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("pomodomate-"),
+            "the socket must live in a directory of ours, not directly in /tmp: {}",
+            path.display()
+        );
+
+        unsafe {
+            if let Some(value) = runtime {
+                std::env::set_var("XDG_RUNTIME_DIR", value);
+            }
+            if let Some(value) = socket {
+                std::env::set_var("POMODOMATE_SOCKET", value);
+            }
+        }
     }
 
     #[test]

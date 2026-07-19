@@ -345,6 +345,21 @@ impl Engine {
         self.storage.save_session(&session)
     }
 
+    /// Wind down before the process exits.
+    ///
+    /// Records the phase in progress and fires its end hook, so a setup hook
+    /// that silenced notifications gets its chance to turn them back on. Any
+    /// exit path that skips this leaves the user's desktop altered with no
+    /// hint why.
+    pub fn shut_down(&mut self) {
+        let was_timing = self.phase_started_at.is_some();
+        self.abandon_phase();
+        if was_timing {
+            self.fire_phase_end(false);
+        }
+        self.ambient.stop();
+    }
+
     /// Record the phase in progress, if any, as an unfinished session.
     ///
     /// Used when the user resets or quits: the work happened, so it belongs in
@@ -417,20 +432,29 @@ impl Engine {
             ),
         };
 
-        let mut notification = notify_rust::Notification::new();
-        notification
-            .summary(summary)
-            .body(&body)
-            .icon("pomodomate")
-            .timeout(notify_rust::Timeout::Milliseconds(5000));
+        let summary = summary.to_string();
+        let with_sound = self.config.sound;
 
-        if self.config.sound {
-            // XDG sound theme name; honored by daemons with sound support.
-            notification.sound_name("complete");
-        }
+        // Sending is a blocking D-Bus round trip with no client-side timeout,
+        // and this runs while the engine lock is held. A wedged notification
+        // daemon would otherwise freeze every `pomodomate status` call, so the
+        // round trip happens on its own thread.
+        std::thread::spawn(move || {
+            let mut notification = notify_rust::Notification::new();
+            notification
+                .summary(&summary)
+                .body(&body)
+                .icon("pomodomate")
+                .timeout(notify_rust::Timeout::Milliseconds(5000));
 
-        // Fire-and-forget: a missing notification daemon must not be fatal.
-        let _ = notification.show();
+            if with_sound {
+                // XDG sound theme name; honored by daemons with sound support.
+                notification.sound_name("complete");
+            }
+
+            // Fire-and-forget: a missing notification daemon must not be fatal.
+            let _ = notification.show();
+        });
     }
 }
 

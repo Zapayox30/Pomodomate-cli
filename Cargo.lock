@@ -1772,6 +1772,7 @@ dependencies = [
  "rodio",
  "serde",
  "serde_json",
+ "signal-hook",
  "toml",
  "uuid",
  "wayland-client",

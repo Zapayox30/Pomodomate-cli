@@ -190,7 +190,21 @@ pub fn watch(timeout: Duration) -> Option<std::sync::mpsc::Receiver<IdleEvent>> 
 
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _ = run(timeout, tx);
+        // A compositor restart drops the connection. Without reconnecting,
+        // idle detection would stay dead for the rest of the session with no
+        // sign of it, so keep trying with a slow backoff.
+        let mut backoff = Duration::from_secs(1);
+        loop {
+            let _ = run(timeout, tx.clone());
+
+            // The receiver is gone: the app is shutting down.
+            if tx.send(IdleEvent::Resumed).is_err() {
+                return;
+            }
+
+            std::thread::sleep(backoff);
+            backoff = (backoff * 2).min(Duration::from_secs(60));
+        }
     });
 
     Some(rx)
