@@ -32,6 +32,11 @@
 - ⚡ **Blazing Fast** — Single Rust binary, no runtime, instant startup
 - 🔒 **100% Offline** — No telemetry, no accounts, no internet required
 - ⚙️ **Configurable** — TOML config for durations, breaks, and behavior
+- 🪝 **Shell Hooks** — Run any command on phase changes: auto do-not-disturb, pause music, log time
+- 🏷️ **Tags** — Label your sessions and see where your pomodoros actually went
+- ⚙️ **Background Daemon** — Optional socket-controlled timer for status bars and keybindings
+- 💤 **Idle Detection** — Pauses itself when you step away (Wayland)
+- 🔊 **Ambient Sound** — Loop your own tracks while you focus (optional feature)
 
 ## 📦 Installation
 
@@ -94,8 +99,31 @@ pomodomate --config /path/to/config.toml
 The interface adapts to your terminal: full mascot view in large windows,
 a compact view in small splits, and a one-line mini mode in tiny panes.
 
+```bash
+# Tag this run, then see where your pomodoros went
+pomodomate --tag tesis
+pomodomate stats --by-tag
+
+# Run the timer in the background and drive it from anywhere
+pomodomate daemon &
+pomodomate status --format "{icon} {time}"
+pomodomate ctl toggle
+```
+
 Using Hyprland + Waybar? See [docs/waybar.md](docs/waybar.md) to show your
 pomodoro count and streak in your status bar.
+
+### 📚 Guides
+
+| Guide | What it covers |
+|-------|----------------|
+| [hooks.md](docs/hooks.md) | Run commands on phase changes — DND, music, logging |
+| [tags.md](docs/tags.md) | Label sessions and break stats down by tag |
+| [daemon.md](docs/daemon.md) | Background timer, socket control, Waybar and Hyprland |
+| [idle.md](docs/idle.md) | Automatic pause when you leave the desk |
+| [sounds.md](docs/sounds.md) | Ambient audio, and why we ship no tracks |
+| [themes.md](docs/themes.md) | Colors, custom palettes and clock typefaces |
+| [waybar.md](docs/waybar.md) | Status bar integration |
 
 ## ⌨️ Keybindings
 
@@ -105,6 +133,7 @@ pomodoro count and streak in your status bar.
 | `r` | Reset current timer |
 | `s` | Skip to next phase |
 | `h` | Toggle heatmap view |
+| `d` | Cycle clock typeface |
 | `+` / `-` | Add / remove one minute |
 | `?` | Show help overlay |
 | `q` | Quit (asks for confirmation while running) |
@@ -147,7 +176,7 @@ See [docs/themes.md](docs/themes.md) for details on choosing themes and building
 |-------|--------|-------------|
 | **Phase 1** — MVP Offline | 🚧 In Progress | Timer, Domate mascot, heatmap, notifications |
 | **Phase 2** — Sync | 📋 Planned | Sync with pomodomate.com ecosystem |
-| **Phase 3** — Domate Mode | 📋 Planned | Local camera-based distraction detection |
+| **Phase 3** — Domate Mode | 🚧 Partial | Idle detection shipped; camera-based detection planned |
 
 ## 🌍 Ecosystem
 
