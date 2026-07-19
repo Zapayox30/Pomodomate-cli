@@ -101,21 +101,21 @@ fn generate_sprite(
 
     // The pixel grid perfectly matching the uploaded image (Domate with Sunglasses)
     let base_grid = vec![
-        "         LL SSS         ",  // 0
-        "      LLLL  LS  LLLL    ",  // 1
-        "     LL      S     LL   ",  // 2
-        "   OOOOOOOOOOOOOOOOOO   ",  // 3
-        "  OOrrrrrrrrrrrrrrrrOO  ",  // 4
-        " OrrrrrEErrrrrrrrEErrrO ",  // 5  E = Eyebrow
-        " OrrrGGGGGGGGGGGGGGGGGrO",  // 6  G = Glasses rim
-        "OrrGGgWggggGGGGgWggggGGrO", // 7  g = lens, W = reflection
-        "OrGGggggggGGGGggggggGGdO",  // 8  d = shadow
-        "OrGGggggggGGGGggggggGGdO",  // 9
-        "OrrrGGGGGGGrrrrGGGGGGGdO",  // 10
-        " OrrrrddrrMMMMMMrrddddrO",  // 11 M = Mouth dark
-        "  OOdddrrrMMTTMMrrddddOO",  // 12 T = Tongue
-        "    OOddddddddddddddOO  ",  // 13
-        "      OOOOOOOOOOOOOO    ",  // 14
+        "         LL SSS         ", // 0
+        "      LLLL  LS  LLLL    ", // 1
+        "     LL      S     LL   ", // 2
+        "   OOOOOOOOOOOOOOOOOO   ", // 3
+        "  OOrrrrrrrrrrrrrrrrOO  ", // 4
+        " OrrrrrEErrrrrrrrEErrrO ", // 5  E = Eyebrow
+        " OrrrGGGGGGGGGGGGGGGGGrO", // 6  G = Glasses rim
+        "OrrGGgWggggGGGgWggggGGrO", // 7  g = lens, W = reflection
+        "OrGGggggggGGGGggggggGGdO", // 8  d = shadow
+        "OrGGggggggGGGGggggggGGdO", // 9
+        "OrrrGGGGGGGrrrrGGGGGGGdO", // 10
+        " OrrrrddrrMMMMMMrrddddrO", // 11 M = Mouth dark
+        "  OOdddrrrMMTTMMrrddddOO", // 12 T = Tongue
+        "    OOddddddddddddddOO  ", // 13
+        "      OOOOOOOOOOOOOO    ", // 14
     ];
 
     let mut lines = Vec::new();
@@ -144,8 +144,11 @@ fn generate_sprite(
                             .fg(ZZZ)
                             .add_modifier(ratatui::style::Modifier::BOLD),
                     )),
-                    '!' => spans.push(Span::styled(" ⚡", Style::default())),
-                    '*' => spans.push(Span::styled(" ✨", Style::default())),
+                    // Each cell is two columns wide; these emoji are already
+                    // double-width, so a leading space would push the rest of
+                    // the row out of alignment.
+                    '!' => spans.push(Span::styled("⚡", Style::default())),
+                    '*' => spans.push(Span::styled("✨", Style::default())),
                     's' => spans.push(Span::styled("  ", Style::default().bg(SWEAT_OUTLINE))),
                     'w' => spans.push(Span::styled("  ", Style::default().bg(SWEAT))),
                     _ => spans.push(Span::styled("  ", Style::default().bg(colors.dark_base))), // Transparent
@@ -310,5 +313,65 @@ fn char_to_color(c: char) -> Option<Color> {
         'M' => Some(MOUTH_DARK),
         'T' => Some(TONGUE),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use unicode_width::UnicodeWidthStr;
+
+    /// Rendered width of a sprite line, in terminal columns.
+    fn line_width(line: &Line<'static>) -> usize {
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref().width())
+            .sum()
+    }
+
+    fn colors() -> crate::theme::ThemeColors {
+        crate::theme::ThemeColors::get("default", &None)
+    }
+
+    #[test]
+    fn every_sprite_row_renders_to_the_same_width() {
+        // Rows are drawn cell by cell as two-column spans. One extra cell, or
+        // one glyph a column too wide, shifts that row against the rest of
+        // the face — the glasses row used to be one cell wider, and the
+        // sparkle particles one column wider, than everything else.
+        for state in [
+            MascotState::Idle,
+            MascotState::Working,
+            MascotState::ShortBreak,
+            MascotState::LongBreak,
+            MascotState::LastMinute,
+            MascotState::Completed,
+            MascotState::Sunrise,
+        ] {
+            for tick in [0u64, 1, 3, 7, 15, 31] {
+                let sprite = generate_sprite(state, tick, &colors());
+                // Blank rows are vertical padding for the bobbing animation.
+                let widths: Vec<usize> = sprite
+                    .iter()
+                    .map(line_width)
+                    .filter(|width| *width > 0)
+                    .collect();
+                let expected = widths[0];
+                for (row, width) in widths.iter().enumerate() {
+                    assert_eq!(
+                        *width, expected,
+                        "{state:?} tick {tick}: row {row} is {width} columns, expected {expected}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn particle_glyphs_occupy_exactly_one_cell() {
+        // A cell is two columns wide.
+        for particle in ["⚡", "✨"] {
+            assert_eq!(particle.width(), 2, "{particle:?} is not two columns");
+        }
     }
 }

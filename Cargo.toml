@@ -58,3 +58,6 @@ default = []
 # Ambient sound playback. Off by default because it links against ALSA, which
 # is not available when cross-compiling the aarch64 release binaries.
 audio = ["dep:rodio"]
+
+[dev-dependencies]
+unicode-width = "0.2.2"

@@ -22,7 +22,7 @@ fn intensity_color(count: u32) -> Color {
 /// Draw a GitHub-style contribution heatmap of completed pomodoros.
 pub fn draw_heatmap(frame: &mut Frame, app: &App, area: Rect) {
     // Load daily counts from storage (last 365 days)
-    let daily_counts = match app.engine.storage.daily_counts(365) {
+    let daily_counts = match app.engine.daily_counts(365) {
         Ok(counts) => counts,
         Err(_) => {
             let error_msg = Paragraph::new("Failed to load session history")
@@ -48,7 +48,14 @@ pub fn draw_heatmap(frame: &mut Frame, app: &App, area: Rect) {
     // Build the grid: columns are Mon-Sun weeks, aligned to real weekdays.
     // Show at most the latest 52 weeks so it fits a normal terminal.
     let full_grid = build_grid(&daily_counts);
-    let skip = full_grid.len().saturating_sub(52);
+    // Keep the most recent weeks, and only as many as actually fit: the
+    // renderer truncates from the right, so a narrow terminal used to hide
+    // this week — the part people open the heatmap to see — while showing
+    // months from last year.
+    let label_width = 4;
+    let weeks_that_fit = area.width.saturating_sub(label_width) / 2;
+    let weeks = (weeks_that_fit as usize).clamp(1, 52);
+    let skip = full_grid.len().saturating_sub(weeks);
     let grid = &full_grid[skip..];
 
     // Month labels: mark the column where a new month starts.

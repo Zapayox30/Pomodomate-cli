@@ -35,6 +35,20 @@ pub struct Engine {
     /// Storage problems must not stop the clock, but they must not be
     /// invisible either.
     pub last_error: Option<String>,
+    /// Memoized day counts for the heatmap.
+    ///
+    /// The view redraws at 8 FPS but the data only changes when a session is
+    /// recorded, and recomputing meant re-reading and re-parsing the whole
+    /// history file every frame — 40% of a core on a large history.
+    daily_cache: std::cell::RefCell<Option<DailyCache>>,
+}
+
+/// Cached day counts, tied to the query that produced them.
+struct DailyCache {
+    days: u32,
+    /// Local date the cache was built on, so it expires at midnight.
+    computed_on: chrono::NaiveDate,
+    counts: Vec<(chrono::NaiveDate, u32)>,
 }
 
 /// A point-in-time view of the engine, safe to serialize and send over IPC.
@@ -115,7 +129,32 @@ impl Engine {
             phase_started_at: None,
             ambient: crate::sound::Ambient::new(),
             last_error: None,
+            daily_cache: std::cell::RefCell::new(None),
         }
+    }
+
+    /// Day counts for the heatmap, recomputed only when they can have changed.
+    pub fn daily_counts(&self, days: u32) -> Result<Vec<(chrono::NaiveDate, u32)>> {
+        let today = crate::storage::local_date(Utc::now());
+
+        if let Some(cache) = self.daily_cache.borrow().as_ref() {
+            if cache.days == days && cache.computed_on == today {
+                return Ok(cache.counts.clone());
+            }
+        }
+
+        let counts = self.storage.daily_counts(days)?;
+        *self.daily_cache.borrow_mut() = Some(DailyCache {
+            days,
+            computed_on: today,
+            counts: counts.clone(),
+        });
+        Ok(counts)
+    }
+
+    /// Drop memoized counts after the history changes.
+    fn invalidate_daily_cache(&self) {
+        *self.daily_cache.borrow_mut() = None;
     }
 
     /// Start or stop the ambient track so it matches the timer.
@@ -342,7 +381,9 @@ impl Engine {
             self.config.tags.clone(),
             self.focus_seconds(),
         );
-        self.storage.save_session(&session)
+        self.storage.save_session(&session)?;
+        self.invalidate_daily_cache();
+        Ok(())
     }
 
     /// Wind down before the process exits.

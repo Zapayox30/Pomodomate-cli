@@ -88,9 +88,14 @@ impl DigitStyle {
 
     /// The separator between minutes and seconds, sized to match the style.
     ///
-    /// All three glyphs come from the Geometric Shapes block, which terminals
-    /// render single-width. Anything wider (U+2B24 and friends) would push the
-    /// seconds out of alignment on many fonts.
+    /// All three glyphs come from the Geometric Shapes block and are
+    /// unambiguously single-width, so the separator is exactly three columns.
+    ///
+    /// Emoji-presentation characters are the ones to avoid here: they are
+    /// double-width and would push the seconds out of alignment. Note that
+    /// glyphs with East Asian "ambiguous" width, such as U+2B24, measure as
+    /// single-width yet render wide in some fonts — the column test below
+    /// cannot catch those, so prefer unambiguous glyphs.
     pub fn colon(self) -> &'static str {
         match self {
             Self::Line => " ● ",
@@ -108,12 +113,16 @@ mod tests {
 
     #[test]
     fn every_glyph_is_exactly_three_columns_wide() {
-        // The layout reserves a fixed width, so a wider glyph would break it.
+        // Display columns, not chars: a double-width glyph counts as one
+        // char but occupies two columns, which is exactly the mistake this
+        // test exists to catch.
+        use unicode_width::UnicodeWidthStr;
+
         for style in STYLES {
             for digit in "0123456789".chars() {
                 for (row, text) in style.rows(digit).iter().enumerate() {
                     assert_eq!(
-                        text.chars().count(),
+                        text.width(),
                         3,
                         "{:?} digit {digit} row {row} is not 3 columns: {text:?}",
                         style
@@ -192,8 +201,25 @@ mod tests {
 
     #[test]
     fn colons_are_three_columns_too() {
+        use unicode_width::UnicodeWidthStr;
+
         for style in STYLES {
-            assert_eq!(style.colon().chars().count(), 3);
+            assert_eq!(
+                style.colon().width(),
+                3,
+                "{:?} separator is not 3 columns: {:?}",
+                style,
+                style.colon()
+            );
         }
+    }
+
+    #[test]
+    fn the_column_check_catches_a_wide_glyph() {
+        // Guards the guard: an emoji is three chars but four columns, so a
+        // char count would wave it through and a column count must not.
+        use unicode_width::UnicodeWidthStr;
+        assert_eq!(" 🍅 ".chars().count(), 3);
+        assert_eq!(" 🍅 ".width(), 4);
     }
 }

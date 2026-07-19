@@ -43,18 +43,36 @@ const MAX_CONCURRENT_CLIENTS: usize = 32;
 /// path under the temp dir when `XDG_RUNTIME_DIR` is unset, and can be
 /// overridden with `POMODOMATE_SOCKET`.
 pub fn socket_path() -> PathBuf {
-    if let Some(path) = std::env::var_os("POMODOMATE_SOCKET") {
+    resolve_socket_path(
+        std::env::var_os("POMODOMATE_SOCKET"),
+        std::env::var_os("XDG_RUNTIME_DIR"),
+        unsafe { libc_getuid() },
+        std::env::temp_dir(),
+    )
+}
+
+/// The socket-path policy, as a pure function.
+///
+/// Kept free of environment lookups so it can be tested directly: mutating
+/// process-wide variables from tests races with every other test in the
+/// binary.
+fn resolve_socket_path(
+    socket_override: Option<std::ffi::OsString>,
+    runtime_dir: Option<std::ffi::OsString>,
+    uid: u32,
+    temp_dir: PathBuf,
+) -> PathBuf {
+    if let Some(path) = socket_override {
         return PathBuf::from(path);
     }
-    if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
+    if let Some(dir) = runtime_dir {
         return PathBuf::from(dir).join("pomodomate.sock");
     }
     // No runtime dir: fall back to a private directory of our own under the
     // temp dir. The socket must not sit directly in a world-writable place,
     // where another user could pre-create the path and either block us or
     // impersonate the daemon.
-    let uid = unsafe { libc_getuid() };
-    std::env::temp_dir()
+    temp_dir
         .join(format!("pomodomate-{uid}"))
         .join("pomodomate.sock")
 }
@@ -540,53 +558,33 @@ mod tests {
 
     #[test]
     fn the_temp_fallback_uses_a_private_directory() {
-        // SAFETY: single-threaded test; both variables are restored below.
-        let runtime = std::env::var_os("XDG_RUNTIME_DIR");
-        let socket = std::env::var_os("POMODOMATE_SOCKET");
-        unsafe {
-            std::env::remove_var("XDG_RUNTIME_DIR");
-            std::env::remove_var("POMODOMATE_SOCKET");
-        }
-
-        let path = socket_path();
-        let parent = path.parent().unwrap();
-        assert!(
-            parent
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("pomodomate-"),
-            "the socket must live in a directory of ours, not directly in /tmp: {}",
-            path.display()
+        let path = resolve_socket_path(None, None, 1000, PathBuf::from("/tmp"));
+        assert_eq!(
+            path,
+            PathBuf::from("/tmp/pomodomate-1000/pomodomate.sock"),
+            "the socket must live in a directory of ours, not directly in /tmp"
         );
-
-        unsafe {
-            if let Some(value) = runtime {
-                std::env::set_var("XDG_RUNTIME_DIR", value);
-            }
-            if let Some(value) = socket {
-                std::env::set_var("POMODOMATE_SOCKET", value);
-            }
-        }
     }
 
     #[test]
-    fn socket_path_follows_the_runtime_dir() {
-        // SAFETY: single-threaded test, and the variables are restored below.
-        let previous = std::env::var_os("XDG_RUNTIME_DIR");
-        let previous_override = std::env::var_os("POMODOMATE_SOCKET");
-        unsafe { std::env::remove_var("POMODOMATE_SOCKET") };
-        unsafe { std::env::set_var("XDG_RUNTIME_DIR", "/run/user/test") };
-        assert_eq!(
-            socket_path(),
-            PathBuf::from("/run/user/test/pomodomate.sock")
+    fn the_runtime_dir_is_preferred_over_the_temp_fallback() {
+        let path = resolve_socket_path(
+            None,
+            Some("/run/user/1000".into()),
+            1000,
+            PathBuf::from("/tmp"),
         );
-        match previous {
-            Some(value) => unsafe { std::env::set_var("XDG_RUNTIME_DIR", value) },
-            None => unsafe { std::env::remove_var("XDG_RUNTIME_DIR") },
-        }
-        if let Some(value) = previous_override {
-            unsafe { std::env::set_var("POMODOMATE_SOCKET", value) };
-        }
+        assert_eq!(path, PathBuf::from("/run/user/1000/pomodomate.sock"));
+    }
+
+    #[test]
+    fn an_explicit_socket_override_wins() {
+        let path = resolve_socket_path(
+            Some("/custom/pomo.sock".into()),
+            Some("/run/user/1000".into()),
+            1000,
+            PathBuf::from("/tmp"),
+        );
+        assert_eq!(path, PathBuf::from("/custom/pomo.sock"));
     }
 }

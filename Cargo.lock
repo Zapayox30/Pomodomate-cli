@@ -1774,6 +1774,7 @@ dependencies = [
  "serde_json",
  "signal-hook",
  "toml",
+ "unicode-width",
  "uuid",
  "wayland-client",
  "wayland-protocols",

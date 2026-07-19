@@ -35,9 +35,14 @@ pub enum LayoutMode {
     Mini,
 }
 
+/// Columns the Domate sprite needs: 24 cells drawn two columns each.
+const MASCOT_WIDTH: u16 = 48;
+
 /// Pick a layout that fits without clipping the mascot mid-body.
-fn layout_mode(_width: u16, height: u16, show_mascot: bool) -> LayoutMode {
-    if height >= 38 && show_mascot {
+fn layout_mode(width: u16, height: u16, show_mascot: bool) -> LayoutMode {
+    // Height alone is not enough: in a narrow terminal the sprite used to be
+    // drawn with half its face cut off against the left edge.
+    if height >= 38 && width >= MASCOT_WIDTH && show_mascot {
         LayoutMode::Full
     } else if height >= 15 {
         LayoutMode::Compact
@@ -147,11 +152,33 @@ fn draw_mini_view(frame: &mut Frame, app: &App, area: Rect) {
         .label("");
     frame.render_widget(gauge, chunks[1]);
 
-    let keys = Paragraph::new(Line::from(Span::styled(
-        " space pause · s skip · q quit",
-        Style::default().fg(app.theme_colors.muted_text),
-    )));
-    frame.render_widget(keys, chunks[2]);
+    // Warnings matter more than the key hints: without this the quit
+    // confirmation and the idle notice were invisible here, so the app looked
+    // frozen or the clock stopped for no apparent reason.
+    let hint = if app.quit_pending {
+        Span::styled(
+            " ⚠ press q again to quit",
+            Style::default()
+                .fg(app.theme_colors.warm_yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else if let Some(error) = &app.engine.last_error {
+        Span::styled(
+            format!(" ⚠ {error}"),
+            Style::default().fg(app.theme_colors.tomato_red),
+        )
+    } else if app.engine.paused_by_idle {
+        Span::styled(
+            " ⏸ paused while away · space to resume",
+            Style::default().fg(app.theme_colors.warm_yellow),
+        )
+    } else {
+        Span::styled(
+            " space pause · s skip · h heatmap · q quit",
+            Style::default().fg(app.theme_colors.muted_text),
+        )
+    };
+    frame.render_widget(Paragraph::new(Line::from(hint)), chunks[2]);
 }
 
 /// Centered help overlay listing every keybinding. Any key closes it.
@@ -288,14 +315,13 @@ fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect, use_big: bool) {
     )]));
     lines.push(Line::from(""));
 
-    if use_big {
-        // Parse MM:SS
-        let parts: Vec<&str> = time_str.split(':').collect();
-        let (mins, secs) = if parts.len() == 2 {
-            (parts[0], parts[1])
-        } else {
-            ("00", "00")
-        };
+    // A long phase needs more room than a 25-minute one; fall back to the
+    // plain clock rather than drawing a wrong time.
+    let parts: Vec<&str> = time_str.split(':').collect();
+    let fits = parts.len() == 2 && big_clock_width(&time_str) <= area.width;
+
+    if use_big && fits {
+        let (mins, secs) = (parts[0], parts[1]);
         for big_line in render_big_time(mins, secs, pc, app.digit_style) {
             lines.push(big_line);
         }
@@ -345,17 +371,19 @@ fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect, use_big: bool) {
 
 /// Render the big clock in the active digit style.
 fn render_big_time(mins: &str, secs: &str, color: Color, digits: DigitStyle) -> Vec<Line<'static>> {
-    let m_chars: Vec<char> = mins.chars().collect();
-    let s_chars: Vec<char> = secs.chars().collect();
-
     let style = Style::default().fg(color).add_modifier(Modifier::BOLD);
     let colon_style = Style::default().fg(color);
     let dim_style = Style::default().fg(color).add_modifier(Modifier::DIM);
 
-    let m0 = m_chars.first().copied().unwrap_or('0');
-    let m1 = m_chars.get(1).copied().unwrap_or('0');
-    let s0 = s_chars.first().copied().unwrap_or('0');
-    let s1 = s_chars.get(1).copied().unwrap_or('0');
+    // Render every digit given, not a fixed two: a phase longer than 99
+    // minutes used to display "12:00" for two hours, silently dropping the
+    // leading digit while the progress bar showed the real time.
+    let group = |text: &str, row: usize| -> String {
+        text.chars()
+            .map(|digit| digits.rows(digit)[row])
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
 
     // The separator only appears on the middle row; the others keep the same
     // width so the two halves stay aligned.
@@ -367,19 +395,21 @@ fn render_big_time(mins: &str, secs: &str, color: Color, digits: DigitStyle) -> 
         };
 
         Line::from(vec![
-            Span::styled(
-                format!(" {} {}", digits.rows(m0)[i], digits.rows(m1)[i]),
-                style,
-            ),
+            Span::styled(format!(" {}", group(mins, i)), style),
             Span::styled(separator, separator_style),
-            Span::styled(
-                format!("{} {} ", digits.rows(s0)[i], digits.rows(s1)[i]),
-                style,
-            ),
+            Span::styled(format!("{} ", group(secs, i)), style),
         ])
     };
 
     vec![row(0), row(1), row(2)]
+}
+
+/// Columns needed to draw `MM:SS` in the big font, given the digit count.
+fn big_clock_width(time_str: &str) -> u16 {
+    // Each glyph is 3 columns with a 1-column gap, plus the 3-column
+    // separator and one column of padding on each side.
+    let digits = time_str.chars().filter(char::is_ascii_digit).count() as u16;
+    digits * 4 + 3 + 2
 }
 
 /// Visual pomodoro counter — shows completed tomatoes.
