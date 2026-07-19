@@ -54,6 +54,18 @@ pomodomate stats --tag rust --json
 # {"today":2,"week":2,"year":2,"active_days":1,"best_streak":1,"current_streak":1}
 ```
 
+## Cómo se cuentan los días
+
+Un pomodoro pertenece al día de **tu reloj**, no al del meridiano de
+Greenwich. Si trabajas a las 21:00 en Lima, cuenta para hoy, no para mañana.
+Las sesiones se guardan como instantes UTC —que es la forma correcta de
+registrar un momento— y se agrupan por tu fecha local al mostrarlas.
+
+Cada sesión guarda además `focus_seconds`, el tiempo que el reloj estuvo
+realmente corriendo, sin contar las pausas. `duration_minutes` sigue siendo la
+duración prevista de la fase: si estiras un bloque con `+` o lo saltas a mitad,
+la diferencia entre ambos campos te dice qué pasó de verdad.
+
 ## Detalles que conviene saber
 
 - Solo cuentan los **bloques de trabajo completados**. Un pomodoro saltado con

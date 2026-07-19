@@ -117,13 +117,19 @@ pomodoro count and streak in your status bar.
 
 | Guide | What it covers |
 |-------|----------------|
-| [hooks.md](docs/hooks.md) | Run commands on phase changes — DND, music, logging |
+| [hooks.md](docs/hooks.md) | Run commands on phase changes — DND, music, logging ⚠️ |
 | [tags.md](docs/tags.md) | Label sessions and break stats down by tag |
 | [daemon.md](docs/daemon.md) | Background timer, socket control, Waybar and Hyprland |
 | [idle.md](docs/idle.md) | Automatic pause when you leave the desk |
 | [sounds.md](docs/sounds.md) | Ambient audio, and why we ship no tracks |
 | [themes.md](docs/themes.md) | Colors, custom palettes and clock typefaces |
 | [waybar.md](docs/waybar.md) | Status bar integration |
+
+> ⚠️ **A note on hooks:** the `[hooks]` section of `config.toml` runs shell
+> commands with your permissions. Pomodomate ships with none configured, but
+> treat a `config.toml` from someone else — a dotfiles repo, a blog post, a
+> cloned project — the way you would treat a shell script they sent you: read
+> the hooks before running it.
 
 ## ⌨️ Keybindings
 

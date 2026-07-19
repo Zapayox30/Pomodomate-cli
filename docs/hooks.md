@@ -88,6 +88,28 @@ work_end = "echo \"$(date -Is) $POMODOMATE_PHASE completed=$POMODOMATE_COMPLETED
 work_end = "[ \"$POMODOMATE_COMPLETED\" = true ] && notify-send '🍅 Bloque #'$POMODOMATE_POMODOROS' terminado'"
 ```
 
+## Entrecomilla tus variables
+
+Los valores llegan como **datos**, nunca como código: Pomodomate los pasa por
+el entorno en vez de pegarlos dentro de la línea de shell, así que una etiqueta
+como `$(rm -rf ~)` se queda en texto literal y no se ejecuta.
+
+Aun así, entrecomilla al usarlas, como en cualquier script:
+
+```toml
+[hooks]
+work_end = "echo \"$POMODOMATE_TAGS\" >> ~/log.txt"   # ✅
+# work_end = "eval $POMODOMATE_TAGS"                    # ❌ nunca hagas esto
+```
+
+## Al cerrar también se ejecutan
+
+Si cierras el temporizador (con `q`) o detienes el daemon (con `ctl quit`,
+Ctrl+C o `systemctl stop`) mientras hay una fase en marcha, su hook de fin
+**se ejecuta igualmente**. Así, un `work_start` que activa el "no molestar"
+siempre encuentra su pareja y no te deja el escritorio silenciado sin saber
+por qué.
+
 ## Un aviso de seguridad
 
 Los hooks ejecutan comandos arbitrarios con **tus permisos**. Trata tu

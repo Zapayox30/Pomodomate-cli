@@ -1,5 +1,9 @@
 name: Release
 
+# Actions are pinned to commit SHAs rather than moving tags: this workflow has
+# contents: write and publishes the binaries users download, so a compromised
+# or retagged action would ship straight to them.
+
 on:
   push:
     tags: ["v*"]
@@ -28,11 +32,11 @@ jobs:
     env:
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: ${{ matrix.target }}
       - if: matrix.packages
@@ -43,7 +47,7 @@ jobs:
           cd target/${{ matrix.target }}/release
           tar czf pomodomate-${{ github.ref_name }}-${{ matrix.target }}.tar.gz pomodomate
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: target/${{ matrix.target }}/release/pomodomate-*.tar.gz
           generate_release_notes: true

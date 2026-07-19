@@ -21,8 +21,8 @@ pomodomate daemon -w 50 -b 10 --tag tesis
 ```
 
 Escucha en `$XDG_RUNTIME_DIR/pomodomate.sock`. Si tu sistema no define esa
-variable, usa `/tmp/pomodomate-<uid>.sock`. Puedes elegir la ruta con
-`POMODOMATE_SOCKET`:
+variable, usa `/tmp/pomodomate-<uid>/pomodomate.sock`, dentro de un directorio
+propio con permisos `0700`. Puedes elegir la ruta con `POMODOMATE_SOCKET`:
 
 ```bash
 POMODOMATE_SOCKET=/tmp/pomodomate.sock pomodomate daemon
@@ -57,7 +57,7 @@ $ pomodomate status --format "{icon} {time} · {percent}%"
 🍅 24:57 · 0%
 
 $ pomodomate status --json
-{"phase":"work","status":"running","remaining_seconds":1497,"total_seconds":1500,"percent":0,"pomodoros":0,"time":"24:57"}
+{"phase":"work","status":"running","remaining_seconds":1497,"total_seconds":1500,"percent":0,"pomodoros":0,"time":"24:57","idle_paused":false,"error":null}
 ```
 
 ### Marcadores de plantilla
@@ -71,6 +71,10 @@ $ pomodomate status --json
 | `{status}` | `running`, `paused`, `idle`, `completed` |
 | `{pomodoros}` | `3` |
 | `{remaining}` / `{total}` | segundos en crudo |
+
+El JSON incluye además `idle_paused` (si la pausa fue por ausencia) y `error`
+(el último fallo no fatal, normalmente una escritura del historial que no pudo
+completarse).
 
 Un marcador que no exista se deja tal cual, para que una errata se vea en la
 barra en lugar de desaparecer en silencio.
@@ -124,6 +128,14 @@ WantedBy=default.target
 systemctl --user enable --now pomodomate
 ```
 
+## Detenerlo de forma segura
+
+`ctl quit`, Ctrl+C y `systemctl stop` hacen lo mismo: registran la fase que
+estuviera en marcha, ejecutan su hook de fin y borran el socket. Esto último
+importa más de lo que parece: si tienes un `work_start` que activa el "no
+molestar", detener el daemon sin ejecutar su pareja te dejaría el escritorio
+silenciado sin ninguna pista de por qué.
+
 ## Detalles del diseño
 
 - **Un daemon por usuario.** Si intentas arrancar un segundo, te avisa en vez
@@ -132,7 +144,18 @@ systemctl --user enable --now pomodomate
   (`kill -9`, corte de luz), el siguiente arranque detecta que nadie escucha
   en ese archivo y lo reemplaza.
 - **El reloj corre en su propio hilo**, así que un cliente lento nunca retrasa
-  un tic.
+  un tic, y **cada conexión se atiende en el suyo**, de modo que un cliente
+  atascado no deja a los demás esperando.
+- **El socket es tuyo y solo tuyo**: se crea con permisos `0600`, sin heredar
+  tu `umask`. Si no hay `XDG_RUNTIME_DIR`, va dentro de un directorio propio
+  con permisos `0700` en lugar de quedar suelto en `/tmp`, donde otro usuario
+  del sistema podría adelantarse a crearlo.
+- **Las lecturas están acotadas** a 1 KiB: el comando más largo ocupa seis
+  bytes, así que un cliente que nunca envíe un fin de línea no puede hacer
+  crecer la memoria del daemon.
+- **Un fichero que no sea un socket nunca se borra.** Si apuntas
+  `POMODOMATE_SOCKET` a un archivo normal por error, Pomodomate se niega a
+  arrancar en vez de destruirlo.
 - **El daemon guarda sesiones y dispara [hooks](hooks.md)** igual que la TUI:
   ambos comparten el mismo motor, así que no hay dos comportamientos distintos
   que mantener sincronizados.

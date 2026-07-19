@@ -62,6 +62,9 @@ distinto de "estoy sentado pero distraído".
 
 - El protocolo se consulta **una sola vez al arrancar**. Si no está disponible,
   no se lanza ningún hilo de vigilancia.
+- Si reinicias el compositor, la conexión se pierde y **se reintenta sola**,
+  con esperas cada vez más largas. Antes se quedaba muerta en silencio hasta
+  que reiniciabas Pomodomate.
 - El vigilante corre en su propio hilo y se comunica por un canal, así que
   nunca bloquea el dibujado ni el reloj.
 - Una pausa manual (`space`, `ctl pause`) **no** se marca como pausa por

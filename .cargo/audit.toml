@@ -1,0 +1,28 @@
+# Configuration for `cargo audit`, run in CI.
+#
+# Every entry below is an advisory we have looked at and consciously accepted,
+# with the reasoning recorded. Nothing gets added here to make the build green.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2026-0194 — quadratic parsing of duplicate attribute names
+    # RUSTSEC-2026-0195 — unbounded namespace allocation in NsReader
+    #
+    # Both are denial-of-service issues in quick-xml, reachable only by feeding
+    # it hostile XML. They arrive through wayland-scanner, which is a
+    # PROC-MACRO: it runs at compile time to generate the Wayland protocol
+    # bindings from the XML files shipped inside the crate itself. That code is
+    # never linked into the binary and never sees input from a user or from the
+    # network.
+    #
+    # Verified rather than assumed:
+    #   cargo tree            -> wayland-scanner v0.31.10 (proc-macro)
+    #   cargo tree -e build   -> quick-xml absent from the build graph
+    #   strings target/release/pomodomate | grep -c quick-xml  -> 0
+    #
+    # The fix requires quick-xml >= 0.41, which wayland-scanner 0.31.10 does not
+    # accept. Drop these entries once wayland-scanner relaxes that bound; the
+    # audit job will start failing again if the situation changes.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]
