@@ -9,7 +9,7 @@ license=('MIT')
 depends=('gcc-libs')
 makedepends=('cargo')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('ba22bee68c2e51288b19ef0520149096042ded1bad2153594cf248c26caa1871')
+sha256sums=('d11c7231a6cfd6300b4f75b847b0748ab064c0130ba8eed8b85bca108db951c2')
 
 prepare() {
   cd "Pomodomate-cli-$pkgver"
