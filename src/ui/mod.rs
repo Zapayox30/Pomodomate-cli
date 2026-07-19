@@ -1,4 +1,5 @@
-pub mod heatmap;
+pub mod digits;
+mod heatmap;
 pub mod mascot;
 
 use ratatui::{
@@ -11,6 +12,7 @@ use ratatui::{
 
 use crate::app::{App, View};
 use crate::timer::{TimerPhase, TimerStatus};
+use crate::ui::digits::DigitStyle;
 
 // ── Pomodomate color palette ─────────────────────────────────────────
 /// Get phase-specific color
@@ -155,7 +157,7 @@ fn draw_mini_view(frame: &mut Frame, app: &App, area: Rect) {
 /// Centered help overlay listing every keybinding. Any key closes it.
 fn draw_help_overlay(frame: &mut Frame, area: Rect, colors: &crate::theme::ThemeColors) {
     let width = 44.min(area.width);
-    let height = 14.min(area.height);
+    let height = 15.min(area.height);
     let popup = Rect {
         x: area.x + (area.width.saturating_sub(width)) / 2,
         y: area.y + (area.height.saturating_sub(height)) / 2,
@@ -182,6 +184,7 @@ fn draw_help_overlay(frame: &mut Frame, area: Rect, colors: &crate::theme::Theme
         key_line("r", "reset current phase"),
         key_line("s", "skip to next phase"),
         key_line("h", "toggle heatmap view"),
+        key_line("d", "cycle clock style"),
         key_line("+ / -", "add / remove one minute"),
         key_line("?", "toggle this help"),
         key_line("q", "quit (asks twice while running)"),
@@ -293,7 +296,7 @@ fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect, use_big: bool) {
         } else {
             ("00", "00")
         };
-        for big_line in render_big_time(mins, secs, pc) {
+        for big_line in render_big_time(mins, secs, pc, app.digit_style) {
             lines.push(big_line);
         }
     } else {
@@ -340,57 +343,8 @@ fn draw_timer_display(frame: &mut Frame, app: &App, area: Rect, use_big: bool) {
     frame.render_widget(timer_paragraph, area);
 }
 
-/// Render big ASCII-art numbers for the timer.
-fn render_big_time(mins: &str, secs: &str, color: Color) -> Vec<Line<'static>> {
-    // 3-line tall number font using block characters
-    let digit_top = |d: char| -> &'static str {
-        match d {
-            '0' => "╭─╮",
-            '1' => " ╷ ",
-            '2' => "╶─╮",
-            '3' => "╶─╮",
-            '4' => "╷ ╷",
-            '5' => "╭─╴",
-            '6' => "╭─╴",
-            '7' => "╶─╮",
-            '8' => "╭─╮",
-            '9' => "╭─╮",
-            _ => "   ",
-        }
-    };
-
-    let digit_mid = |d: char| -> &'static str {
-        match d {
-            '0' => "│ │",
-            '1' => " │ ",
-            '2' => "╭─╯",
-            '3' => " ─┤",
-            '4' => "╰─┤",
-            '5' => "╰─╮",
-            '6' => "├─╮",
-            '7' => "  │",
-            '8' => "├─┤",
-            '9' => "╰─┤",
-            _ => "   ",
-        }
-    };
-
-    let digit_bot = |d: char| -> &'static str {
-        match d {
-            '0' => "╰─╯",
-            '1' => " ╵ ",
-            '2' => "╰─╴",
-            '3' => "╶─╯",
-            '4' => "  ╵",
-            '5' => "╶─╯",
-            '6' => "╰─╯",
-            '7' => "  ╵",
-            '8' => "╰─╯",
-            '9' => "╶─╯",
-            _ => "   ",
-        }
-    };
-
+/// Render the big clock in the active digit style.
+fn render_big_time(mins: &str, secs: &str, color: Color, digits: DigitStyle) -> Vec<Line<'static>> {
     let m_chars: Vec<char> = mins.chars().collect();
     let s_chars: Vec<char> = secs.chars().collect();
 
@@ -403,23 +357,29 @@ fn render_big_time(mins: &str, secs: &str, color: Color) -> Vec<Line<'static>> {
     let s0 = s_chars.first().copied().unwrap_or('0');
     let s1 = s_chars.get(1).copied().unwrap_or('0');
 
-    vec![
+    // The separator only appears on the middle row; the others keep the same
+    // width so the two halves stay aligned.
+    let row = |i: usize| -> Line<'static> {
+        let (separator, separator_style) = if i == 1 {
+            (digits.colon(), colon_style)
+        } else {
+            ("   ", dim_style)
+        };
+
         Line::from(vec![
-            Span::styled(format!(" {} {}", digit_top(m0), digit_top(m1)), style),
-            Span::styled("   ", dim_style),
-            Span::styled(format!("{} {} ", digit_top(s0), digit_top(s1)), style),
-        ]),
-        Line::from(vec![
-            Span::styled(format!(" {} {}", digit_mid(m0), digit_mid(m1)), style),
-            Span::styled(" ● ", colon_style),
-            Span::styled(format!("{} {} ", digit_mid(s0), digit_mid(s1)), style),
-        ]),
-        Line::from(vec![
-            Span::styled(format!(" {} {}", digit_bot(m0), digit_bot(m1)), style),
-            Span::styled("   ", dim_style),
-            Span::styled(format!("{} {} ", digit_bot(s0), digit_bot(s1)), style),
-        ]),
-    ]
+            Span::styled(
+                format!(" {} {}", digits.rows(m0)[i], digits.rows(m1)[i]),
+                style,
+            ),
+            Span::styled(separator, separator_style),
+            Span::styled(
+                format!("{} {} ", digits.rows(s0)[i], digits.rows(s1)[i]),
+                style,
+            ),
+        ])
+    };
+
+    vec![row(0), row(1), row(2)]
 }
 
 /// Visual pomodoro counter — shows completed tomatoes.
@@ -539,6 +499,8 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             label(" skip  ".into()),
             key("h"),
             label(format!(" {}  ", view_name)),
+            key("d"),
+            label(format!(" {}  ", app.digit_style.name())),
             key("?"),
             label(" help  ".into()),
             Span::styled(

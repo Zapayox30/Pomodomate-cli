@@ -33,12 +33,15 @@ pub struct App {
     pub quit_pending: bool,
     /// Active theme colors
     pub theme_colors: crate::theme::ThemeColors,
+    /// Typeface for the big clock, cycled with `d`
+    pub digit_style: crate::ui::digits::DigitStyle,
 }
 
 impl App {
     /// Create a new App from the given config.
     pub fn new(config: Config) -> Result<Self> {
         let theme_colors = crate::theme::ThemeColors::get(&config.theme, &config.custom_colors);
+        let digit_style = crate::ui::digits::DigitStyle::from_name(&config.digit_style);
         let engine = Engine::new(config)?;
 
         Ok(Self {
@@ -48,6 +51,7 @@ impl App {
             show_help: false,
             quit_pending: false,
             theme_colors,
+            digit_style,
         })
     }
 
@@ -121,6 +125,9 @@ impl App {
                     View::Timer => View::Heatmap,
                     View::Heatmap => View::Timer,
                 };
+            }
+            KeyCode::Char('d') => {
+                self.digit_style = self.digit_style.next();
             }
             KeyCode::Char('?') => {
                 self.show_help = true;

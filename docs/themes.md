@@ -18,6 +18,26 @@ Puedes cambiar el estilo visual de tu temporizador usando cualquiera de los sigu
 
 ---
 
+## 🔢 Estilos del Reloj
+
+Además del color, puedes cambiar la tipografía de los dígitos grandes. Pulsa
+`d` dentro del temporizador para ir rotando entre los tres estilos; el pie de
+pantalla te indica cuál está activo.
+
+| Estilo | Aspecto |
+| :--- | :--- |
+| `line` | `╶─╮ ╭─╴ ● ╭─╮ ╭─╮` — trazo fino redondeado (por defecto) |
+| `heavy` | `╺━┓ ┏━╸ ◆ ┏━┓ ┏━┓` — trazo grueso |
+| `double` | `══╗ ╔══ ◉ ╔═╗ ╔═╗` — línea doble |
+
+Para fijar tu preferido, añade a `config.toml`:
+
+```toml
+digit_style = "double"   # "line", "heavy" o "double"
+```
+
+---
+
 ## ⚙️ Cómo Activar un Tema
 
 ### Temporalmente (una sola ejecución)

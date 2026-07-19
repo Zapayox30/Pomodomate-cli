@@ -61,6 +61,10 @@ pub struct Config {
     #[serde(default)]
     pub tags: Vec<String>,
 
+    /// Typeface for the big clock: "line", "heavy" or "double".
+    #[serde(default = "default_digit_style")]
+    pub digit_style: String,
+
     /// Ambient track looped during work phases.
     ///
     /// A bare name like "rain" is looked up in the sounds directory; an
@@ -96,6 +100,9 @@ fn default_true() -> bool {
 fn default_theme() -> String {
     "default".to_string()
 }
+fn default_digit_style() -> String {
+    "line".to_string()
+}
 fn default_idle_timeout() -> u64 {
     5
 }
@@ -116,6 +123,7 @@ impl Default for Config {
             custom_colors: None,
             hooks: crate::hooks::Hooks::default(),
             tags: Vec::new(),
+            digit_style: default_digit_style(),
             ambient_sound: String::new(),
             idle_timeout: default_idle_timeout(),
         }
